@@ -23,6 +23,8 @@ docker compose up --build
 Useful initial endpoints:
 
 - `POST /api/v1/links` creates a short link
+- `GET /api/v1/links/{code}` returns owner-visible link state
+- `PATCH /api/v1/links/{code}` updates destination, status, or expiration
 - `GET /{code}` returns a temporary redirect to the destination
 - `GET /api/v1/links/{code}/analytics` returns the persisted click total
 - `GET /openapi.yaml` returns the OpenAPI 3.1 contract
@@ -38,6 +40,21 @@ $body = @{ destinationUrl = 'https://example.com/docs' } | ConvertTo-Json
 Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/v1/links' -ContentType 'application/json' -Body $body
 ```
 
+The creation response contains an `ownerToken` exactly once. Store it as a secret; only its SHA-256
+digest is persisted. Management and analytics calls require `X-Link-Owner-Token`:
+
+```powershell
+$headers = @{ 'X-Link-Owner-Token' = $created.ownerToken }
+Invoke-RestMethod -Uri "http://localhost:8080/api/v1/links/$($created.code)" -Headers $headers
+$update = @{ expectedVersion = 0; destinationUrl = 'https://example.com/new'; status = 'DISABLED' } | ConvertTo-Json
+Invoke-RestMethod -Method Patch -Uri "http://localhost:8080/api/v1/links/$($created.code)" -Headers $headers -ContentType 'application/json' -Body $update
+```
+
+Updates use the response `version` for optimistic concurrency; stale writers receive `409 Conflict`.
+Creation is limited per direct client address using an atomic Redis fixed window (20 requests per 60
+seconds by default). Configure `LINK_CREATION_RATE_LIMIT` and `LINK_CREATION_RATE_WINDOW`. The limiter
+fails open when Redis is unavailable, so production deployments should also enforce an edge limit.
+
 An optional custom alias and expiration can be supplied:
 
 ```json
@@ -48,7 +65,9 @@ An optional custom alias and expiration can be supplied:
 }
 ```
 
-Only absolute `http` and `https` destination URLs are accepted. Aliases are case-sensitive, must contain 4-32 letters, digits, underscores, or hyphens, and cannot use reserved application routes.
+Only absolute public-network `http` and `https` destination URLs are accepted. Credentials, localhost,
+private/link-local IP literals, metadata hosts, and internal host suffixes are rejected. Aliases are
+case-sensitive, must contain 4-32 letters, digits, underscores, or hyphens, and cannot use reserved routes.
 
 ## Current architecture
 
@@ -59,19 +78,34 @@ Only absolute `http` and `https` destination URLs are accepted. Aliases are case
 - Redis provides expiration-aware positive caching and short-lived negative caching on the redirect path.
 - Successful redirects publish privacy-filtered click events to a Redis Stream without making analytics availability a redirect dependency.
 - The worker consumes events with at-least-once delivery, idempotently persists them in PostgreSQL, retries pending failures, and dead-letters poison messages.
-- `GET /api/v1/links/{code}/analytics` returns the database-counted click total.
+- Owner-token-protected analytics returns the database-counted click total.
 
 Errors use RFC 9457 problem details. Redirects return `302 Found` with `Cache-Control: no-store` so future disablement and expiration changes take effect without stale client caching.
 
 ## Validation
 
-`mvn clean verify` runs domain tests, application smoke tests, and API integration tests against PostgreSQL 17 and Redis Testcontainers. The suite covers link creation/resolution, cache/event publishing, analytics timestamp persistence and idempotency, database-side counting, input validation, and privacy filtering.
+`mvn clean verify` runs domain tests, failure-path tests, application smoke tests, and API integration tests against PostgreSQL 17 and Redis Testcontainers. The suite covers link creation/resolution, authorization, optimistic concurrency, cache and Redis failures, rate limiting, event publishing, analytics persistence/restarts, input validation, and privacy filtering. JaCoCo generates `target/site/jacoco/index.html` and fails verification when aggregate line coverage is 90% or lower.
 
 ## Analytics worker configuration
 
 Each worker replica needs a unique, stable `ANALYTICS_CONSUMER_NAME`; the default Compose worker uses `worker-1`. `ANALYTICS_MAX_ATTEMPTS` defaults to `3`. A failed record remains pending for retry and is acknowledged only after successful persistence or after it is copied to the `clicks:dead-letter` stream. For production, alert on that stream and define an operator replay procedure.
 
-Operational inspection and replay procedures are in [the analytics worker runbook](docs/analytics-worker-runbook.md). The API exposes cache and analytics-publication counters through Actuator using bounded outcome tags. Worker processing counters require an external exporter because the worker profile intentionally has no HTTP server.
+Operational inspection and replay procedures are in [the analytics worker runbook](docs/analytics-worker-runbook.md).
+The worker exposes Prometheus metrics at `http://localhost:8081/actuator/prometheus`, including stream
+length and consumer pending-message gauges. Retry counts live in Redis so restarts preserve poison-message
+budgets. API metrics remain available at port 8080.
+
+## Load smoke test
+
+With the Compose stack running and a valid short code, install k6 and run:
+
+```powershell
+$env:CODE = 'your-code'
+k6 run tests/load/url-shortener-smoke.js
+```
+
+Defaults are 50 redirect requests/second for 30 seconds with thresholds of less than 1% failures and
+under 200 ms p95 latency. Override `BASE_URL`, `REQUESTS_PER_SECOND`, and `DURATION` as needed.
 
 ## CI/CD
 
@@ -90,4 +124,5 @@ Required-check configuration, release handling, scan triage, and rollback constr
 
 ## Next slice
 
-Add authenticated link ownership and management operations (lookup, disable, and update), then connect those mutations to explicit cache invalidation. Add metrics and alerts for stream lag, pending records, retries, and dead-letter volume.
+Replace capability tokens with organizational identity when a user model is selected, add explicit token
+rotation/recovery, and choose a production deployment platform with protected environments and alerting.

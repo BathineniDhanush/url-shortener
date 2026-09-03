@@ -30,4 +30,17 @@ class DestinationUrlPolicyTest {
         assertThatThrownBy(() -> policy.validate("https:///missing-host"))
                 .isInstanceOf(InvalidDestinationUrlException.class);
     }
+
+    @Test
+    void rejectsLocalPrivateAndMetadataDestinations() {
+        for (String candidate : new String[]{
+                "http://localhost/admin", "http://127.0.0.1", "http://10.1.2.3",
+                "http://169.254.169.254/latest/meta-data", "http://[::1]",
+                "https://service.internal/path", "https://metadata.google.internal/computeMetadata/v1"}) {
+            assertThatThrownBy(() -> policy.validate(candidate))
+                    .as(candidate)
+                    .isInstanceOf(InvalidDestinationUrlException.class)
+                    .hasMessageContaining("private network");
+        }
+    }
 }

@@ -6,6 +6,12 @@ import com.example.shortener.link.error.InvalidDestinationUrlException;
 import com.example.shortener.link.error.InvalidExpirationException;
 import com.example.shortener.link.error.LinkNotFoundException;
 import com.example.shortener.link.error.LinkUnavailableException;
+import com.example.shortener.link.error.LinkAccessDeniedException;
+import com.example.shortener.link.error.ConcurrentLinkUpdateException;
+import com.example.shortener.link.error.InvalidLinkUpdateException;
+import com.example.shortener.link.error.RateLimitExceededException;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -18,9 +24,15 @@ import java.util.List;
 @RestControllerAdvice
 public class ApiExceptionHandler {
 
-    @ExceptionHandler({InvalidDestinationUrlException.class, InvalidExpirationException.class})
+    @ExceptionHandler({InvalidDestinationUrlException.class, InvalidExpirationException.class,
+            InvalidLinkUpdateException.class})
     ProblemDetail handleBadRequest(RuntimeException exception) {
         return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage());
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ProblemDetail handleMissingHeader(MissingRequestHeaderException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Link access denied", "A valid link owner token is required");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -37,6 +49,24 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AliasConflictException.class)
     ProblemDetail handleConflict(AliasConflictException exception) {
         return problem(HttpStatus.CONFLICT, "Short code conflict", exception.getMessage());
+    }
+
+    @ExceptionHandler(LinkAccessDeniedException.class)
+    ProblemDetail handleForbidden(LinkAccessDeniedException exception) {
+        return problem(HttpStatus.FORBIDDEN, "Link access denied", exception.getMessage());
+    }
+
+    @ExceptionHandler(ConcurrentLinkUpdateException.class)
+    ProblemDetail handleConcurrentUpdate(ConcurrentLinkUpdateException exception) {
+        return problem(HttpStatus.CONFLICT, "Concurrent link update", exception.getMessage());
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    ResponseEntity<ProblemDetail> handleRateLimit(RateLimitExceededException exception) {
+        ProblemDetail detail = problem(HttpStatus.TOO_MANY_REQUESTS, "Rate limit exceeded", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", Long.toString(exception.retryAfterSeconds()))
+                .body(detail);
     }
 
     @ExceptionHandler(CodeGenerationException.class)

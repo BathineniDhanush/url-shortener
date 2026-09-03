@@ -25,7 +25,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -38,6 +37,7 @@ public class AnalyticsConsumer implements ApplicationRunner {
     private static final String STREAM_KEY = "clicks:stream";
     private static final String DEAD_LETTER_STREAM_KEY = "clicks:dead-letter";
     private static final String GROUP_NAME = "analytics-group";
+    private static final String RETRY_HASH_KEY = "clicks:retry-attempts";
     private static final Duration READ_TIMEOUT = Duration.ofSeconds(5);
 
     private final StringRedisTemplate redisTemplate;
@@ -46,7 +46,6 @@ public class AnalyticsConsumer implements ApplicationRunner {
     private final int maxAttempts;
     private final ApplicationMetrics metrics;
     private final AtomicBoolean running = new AtomicBoolean(false);
-    private final Map<RecordId, Integer> failureCounts = new ConcurrentHashMap<>();
     private ExecutorService executor;
 
     public AnalyticsConsumer(StringRedisTemplate redisTemplate, AnalyticsRepository analyticsRepository,
@@ -88,6 +87,7 @@ public class AnalyticsConsumer implements ApplicationRunner {
             try {
                 processBatch(ReadOffset.from("0-0"), Duration.ZERO);
                 processBatch(ReadOffset.lastConsumed(), READ_TIMEOUT);
+                refreshBacklogMetrics();
             } catch (Exception e) {
                 if (!running.get() || Thread.currentThread().isInterrupted()) {
                     break;
@@ -133,7 +133,7 @@ public class AnalyticsConsumer implements ApplicationRunner {
             metrics.analyticsConsumerEvent(ApplicationMetrics.ConsumerOutcome.PROCESSED);
             acknowledge(record);
         } catch (Exception e) {
-            int attempts = failureCounts.merge(record.getId(), 1, Integer::sum);
+            int attempts = incrementAttempts(record.getId());
             if (attempts >= maxAttempts) {
                 moveToDeadLetter(record, e, attempts);
             } else {
@@ -163,7 +163,23 @@ public class AnalyticsConsumer implements ApplicationRunner {
 
     private void acknowledge(MapRecord<String, String, String> record) {
         redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, record.getId());
-        failureCounts.remove(record.getId());
+        redisTemplate.opsForHash().delete(RETRY_HASH_KEY, record.getId().getValue());
+    }
+
+    private int incrementAttempts(RecordId recordId) {
+        Long attempts = redisTemplate.opsForHash().increment(RETRY_HASH_KEY, recordId.getValue(), 1);
+        return attempts == null ? 1 : Math.toIntExact(attempts);
+    }
+
+    private void refreshBacklogMetrics() {
+        try {
+            Long length = redisTemplate.opsForStream().size(STREAM_KEY);
+            var pending = redisTemplate.opsForStream().pending(STREAM_KEY, GROUP_NAME);
+            metrics.analyticsBacklog(length == null ? 0 : length,
+                    pending == null ? 0 : pending.getTotalPendingMessages());
+        } catch (Exception exception) {
+            log.debug("Unable to refresh analytics backlog metrics: {}", exception.getMessage());
+        }
     }
 
     private String truncate(String value, int maximumLength) {

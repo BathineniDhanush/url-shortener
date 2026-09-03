@@ -13,17 +13,19 @@ The redirect path does not wait for database analytics persistence. A Redis publ
 - `REDIS_HOST` and `REDIS_PORT` select Redis.
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` select PostgreSQL.
 
-Attempt counts are currently held in worker memory. Restarting a worker resets the attempt count, while a stable consumer name lets it resume its own pending records. Automatic claiming of records abandoned by a permanently retired consumer is not yet implemented.
+Attempt counts are stored in the Redis hash `clicks:retry-attempts`, keyed by stream record ID, and are deleted after acknowledgement. Restarting a worker therefore preserves the poison-message budget, while a stable consumer name lets it resume its own pending records. Automatic claiming of records abandoned by a permanently retired consumer is not yet implemented.
 
 ## Health and metrics
 
-The API exposes application metrics through `/actuator/metrics`. The worker currently runs with `web-application-type: none`; it registers the same counters in process but needs a production meter-registry exporter or a deliberately enabled management server before external scraping is possible:
+The API exposes application metrics through `/actuator/metrics` and `/actuator/prometheus`. The worker exposes its management server on port `8081`, including `/actuator/health` and `/actuator/prometheus`:
 
 - `url.shortener.analytics.publications` with `outcome=published|failed`
 - `url.shortener.analytics.consumer.events` with `outcome=processed|retry|dead_lettered`
+- `url.shortener.analytics.stream.length`
+- `url.shortener.analytics.consumer.pending`
 - `url.shortener.cache.lookups` with `result=hit|negative_hit|miss|error`
 
-Alert on sustained publication failures, retry growth, any dead-letter growth, and Redis consumer lag after connecting the worker to an external metrics backend. The current prototype does not export a first-class lag gauge; use Redis stream inspection until one is added.
+Alert on sustained publication failures, retry growth, any dead-letter growth, and pending-message growth. Stream length is exported as a queue-size signal; use Redis consumer-group inspection when exact delivered-versus-undelivered lag is required.
 
 ## Inspect the stream and pending records
 

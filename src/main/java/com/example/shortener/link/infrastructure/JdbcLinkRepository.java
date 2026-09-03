@@ -3,6 +3,7 @@ package com.example.shortener.link.infrastructure;
 import com.example.shortener.link.domain.Link;
 import com.example.shortener.link.domain.LinkRepository;
 import com.example.shortener.link.domain.LinkStatus;
+import com.example.shortener.link.domain.OwnedLink;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -20,13 +21,27 @@ import java.util.UUID;
 @Repository
 public class JdbcLinkRepository implements LinkRepository {
     private static final String INSERT_SQL = """
-            INSERT INTO links (id, code, destination_url, status, expires_at, created_at, updated_at)
-            VALUES (:id, :code, :destinationUrl, :status, :expiresAt, :createdAt, :updatedAt)
+            INSERT INTO links (id, code, destination_url, status, expires_at, created_at, updated_at,
+                               owner_token_hash, version)
+            VALUES (:id, :code, :destinationUrl, :status, :expiresAt, :createdAt, :updatedAt,
+                    :ownerTokenHash, :version)
             """;
     private static final String FIND_BY_CODE_SQL = """
             SELECT id, code, destination_url, status, expires_at, created_at, updated_at
             FROM links
             WHERE code = :code
+            """;
+    private static final String FIND_OWNED_BY_CODE_SQL = """
+            SELECT id, code, destination_url, status, expires_at, created_at, updated_at,
+                   owner_token_hash, version
+            FROM links
+            WHERE code = :code
+            """;
+    private static final String UPDATE_SQL = """
+            UPDATE links
+            SET destination_url = :destinationUrl, status = :status, expires_at = :expiresAt,
+                updated_at = :updatedAt, version = version + 1
+            WHERE code = :code AND version = :expectedVersion
             """;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -36,7 +51,8 @@ public class JdbcLinkRepository implements LinkRepository {
     }
 
     @Override
-    public void insert(Link link) {
+    public void insert(OwnedLink ownedLink) {
+        Link link = ownedLink.link();
         MapSqlParameterSource parameters = new MapSqlParameterSource()
                 .addValue("id", link.id())
                 .addValue("code", link.code())
@@ -45,7 +61,29 @@ public class JdbcLinkRepository implements LinkRepository {
                 .addValue("expiresAt", toOffsetDateTime(link.expiresAt()), Types.TIMESTAMP_WITH_TIMEZONE)
                 .addValue("createdAt", toOffsetDateTime(link.createdAt()), Types.TIMESTAMP_WITH_TIMEZONE)
                 .addValue("updatedAt", toOffsetDateTime(link.updatedAt()), Types.TIMESTAMP_WITH_TIMEZONE);
+        parameters.addValue("ownerTokenHash", ownedLink.ownerTokenHash())
+                .addValue("version", ownedLink.version());
         jdbcTemplate.update(INSERT_SQL, parameters);
+    }
+
+    @Override
+    public Optional<OwnedLink> findOwnedByCode(String code) {
+        return jdbcTemplate.query(FIND_OWNED_BY_CODE_SQL, Map.of("code", code), resultSet ->
+                resultSet.next() ? Optional.of(new OwnedLink(mapLink(resultSet),
+                        resultSet.getString("owner_token_hash"), resultSet.getLong("version"))) : Optional.empty());
+    }
+
+    @Override
+    public boolean update(OwnedLink ownedLink, long expectedVersion) {
+        Link link = ownedLink.link();
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("code", link.code())
+                .addValue("destinationUrl", link.destinationUrl())
+                .addValue("status", link.status().name())
+                .addValue("expiresAt", toOffsetDateTime(link.expiresAt()), Types.TIMESTAMP_WITH_TIMEZONE)
+                .addValue("updatedAt", toOffsetDateTime(link.updatedAt()), Types.TIMESTAMP_WITH_TIMEZONE)
+                .addValue("expectedVersion", expectedVersion);
+        return jdbcTemplate.update(UPDATE_SQL, parameters) == 1;
     }
 
     @Override

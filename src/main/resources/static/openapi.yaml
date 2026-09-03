@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: URL Shortener API
   version: 1.0.0
-  description: API runtime contract for link creation, redirects, click totals, system information, and health.
+  description: API runtime contract for owned link management, redirects, click totals, system information, and health.
 servers:
   - url: http://localhost:8080
     description: Local Docker Compose
@@ -40,14 +40,65 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/links/{code}:
+    parameters:
+      - $ref: '#/components/parameters/Code'
+    get:
+      tags: [Links]
+      summary: Get a link owned by the caller
+      operationId: getLink
+      security:
+        - OwnerToken: []
+      responses:
+        '200':
+          description: Current link state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Links]
+      summary: Update destination, status, or expiration using optimistic concurrency
+      operationId: updateLink
+      security:
+        - OwnerToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateLinkRequest'
+      responses:
+        '200':
+          description: Updated link
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/links/{code}/analytics:
     get:
       tags: [Analytics]
       summary: Get the total persisted clicks for a short link
-      description: This prototype endpoint is public; production requires an ownership and authorization policy.
+      description: Requires the capability token returned once when the link is created.
       operationId: getLinkAnalytics
+      security:
+        - OwnerToken: []
       parameters:
         - $ref: '#/components/parameters/Code'
       responses:
@@ -57,6 +108,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalyticsResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '410':
@@ -132,6 +185,11 @@ paths:
         '410':
           $ref: '#/components/responses/Gone'
 components:
+  securitySchemes:
+    OwnerToken:
+      type: apiKey
+      in: header
+      name: X-Link-Owner-Token
   parameters:
     Code:
       name: code
@@ -149,6 +207,22 @@ components:
             $ref: '#/components/schemas/Problem'
     Conflict:
       description: Short code conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Missing or invalid owner token
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    TooManyRequests:
+      description: Link creation rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
       content:
         application/problem+json:
           schema:
@@ -198,7 +272,7 @@ components:
           description: Must be in the future when supplied.
     LinkResponse:
       type: object
-      required: [id, code, shortUrl, destinationUrl, status, createdAt]
+      required: [id, code, shortUrl, destinationUrl, status, createdAt, version]
       properties:
         id:
           type: string
@@ -219,6 +293,31 @@ components:
           format: date-time
         createdAt:
           type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        ownerToken:
+          type: string
+          description: Returned only during creation. Store it securely; it cannot be recovered.
+    UpdateLinkRequest:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion:
+          type: integer
+          format: int64
+          minimum: 0
+        destinationUrl:
+          type: [string, 'null']
+          format: uri
+          maxLength: 2048
+        status:
+          type: [string, 'null']
+          enum: [ACTIVE, DISABLED, null]
+        expiresAt:
+          type: [string, 'null']
           format: date-time
     AnalyticsResponse:
       type: object

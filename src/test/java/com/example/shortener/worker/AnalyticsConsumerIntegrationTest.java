@@ -92,6 +92,21 @@ class AnalyticsConsumerIntegrationTest {
         assertEquals(0, pendingCount());
     }
 
+    @Test
+    void resumesRetryBudgetPersistedInRedis() {
+        AnalyticsRepository repository = mock(AnalyticsRepository.class);
+        doThrow(new IllegalStateException("database unavailable")).when(repository).save(any());
+        var recordId = redisTemplate.opsForStream().add(STREAM_KEY, validRecord());
+        redisTemplate.opsForHash().put("clicks:retry-attempts", recordId.getValue(), "2");
+
+        consumer = new AnalyticsConsumer(redisTemplate, repository, "restart-worker", 3, metrics);
+        consumer.run(null);
+
+        await(() -> streamSize(DEAD_LETTER_STREAM_KEY) == 1, Duration.ofSeconds(7));
+        assertEquals(0, pendingCount());
+        assertTrue(!redisTemplate.opsForHash().hasKey("clicks:retry-attempts", recordId.getValue()));
+    }
+
     private Map<String, String> validRecord() {
         return Map.of(
             "eventId", UUID.randomUUID().toString(),

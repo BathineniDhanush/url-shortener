@@ -157,7 +157,7 @@ cd E:\Projects\url-shortener
 .\mvnw.cmd -B clean verify
 ```
 
-Result on 2026-09-02: 29 tests passed, 0 failures, 0 errors, no Java lint warnings, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`.
+Result on 2026-09-03: 44 tests passed, 0 failures, 0 errors, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`. JaCoCo measured 90.24% aggregate line coverage, 91.16% instruction coverage, and 71.96% branch coverage. Maven verification enforces a 90.1% line-coverage floor.
 
 Security validation on 2026-09-03 rebuilt the runtime image with Tomcat `10.1.59` and scanned it using a freshly downloaded Trivy vulnerability and Java advisory database. Both the Alpine layer and `app/app.jar` reported zero `HIGH` or `CRITICAL` vulnerabilities.
 
@@ -189,19 +189,20 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 
 ## Known limitations and risks
 
-- No authentication, ownership, quotas, or rate limiting.
-- No SSRF network-range policy beyond URL syntax/scheme/credential validation. Decide whether private, loopback, link-local, and metadata-service destinations must be rejected.
+- Capability-token ownership is implemented, but there is no user identity, token rotation/recovery, or organization model. Legacy links created before `V3` have no owner token and are intentionally unmanageable.
+- Creation has a Redis fixed-window limit that fails open; production still requires a trusted-proxy and edge-rate-limit policy.
+- Local/private IP literals and internal/metadata hostnames are blocked. Hostname DNS is deliberately not resolved during creation, so production egress/DNS-rebinding controls remain necessary if server-side URL fetching is ever added.
 - No Unicode/IDN normalization policy or canonical URL normalization.
-- No link update, disable, delete, or lookup management APIs.
-- Analytics reporting is unauthenticated and has no retention policy or aggregate tables.
-- Retry attempt counts are in process memory; a worker restart resets the poison-message attempt budget.
+- Link lookup and optimistic destination/status/expiration updates exist; delete and owner-token rotation do not.
+- Analytics reporting requires the owner token but still has no retention policy or aggregate tables.
+- Retry attempt counts persist in Redis across worker restarts.
 - Dead-letter records require monitoring and an operator replay procedure.
 - Cache invalidation for future update/disable operations is not implemented because those mutation APIs do not yet exist.
-- Worker counters are registered, but the non-web worker profile has no external metrics exporter or management HTTP server yet.
-- Consumer lag and pending-record gauges are not implemented.
-- No load, latency, resilience, or security testing.
+- API and worker expose Prometheus metrics; deployment-level alert rules are not yet defined.
+- Stream length and pending-record gauges exist; a true consumer-group lag gauge still needs production validation.
+- Security, concurrency, Redis-failure, and configurable k6 load-smoke coverage exist; sustained capacity and chaos testing remain outstanding.
 - No runtime deployment target, deployment manifests, authentication secrets management, or production TLS/proxy configuration.
-- Generated-code collision retry behavior lacks a focused service-level unit test.
+- Sustained production capacity and multi-region consistency have not been validated.
 - CI/CD and the concurrent analytics slice are currently uncommitted; keep their changes separated when reviewing or committing.
 
 ## CI/CD baseline
@@ -216,13 +217,13 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - The delivery security gate requires patched Netty `4.1.136.Final`, PostgreSQL JDBC `42.7.12`, Tomcat `10.1.59`, and current Alpine runtime packages; these are explicit build inputs in `pom.xml` and `Dockerfile`. Tomcat `10.1.59` supersedes the unreleased `10.1.58` candidate and fixes the vulnerabilities affecting versions through `10.1.57`.
 - Actual deployment is intentionally not implemented because no hosting platform, environment credentials, health gate, or rollback contract has been selected.
 
-## Recommended next slice: ownership and link management
+## Completed slice: ownership, management, and operational hardening
 
-1. Decide the authentication/ownership contract for creation, analytics, and management APIs.
-2. Add lookup, disable, and destination-update operations with optimistic concurrency.
-3. Invalidate positive and negative cache entries after committed mutations.
-4. Add authorization, rate limiting, audit events, and focused concurrency tests.
-5. Add worker lag and pending-record gauges plus an externally scrapeable worker metrics backend.
+1. Creation returns a one-time 256-bit capability token and stores only its SHA-256 digest.
+2. Owner-protected lookup, analytics, and PATCH management use optimistic concurrency.
+3. Successful mutations evict redirect cache entries after the database commit.
+4. Creation rate limiting, private-destination rejection, structured audit logs, and security/concurrency tests are present.
+5. Worker retries persist in Redis and Prometheus exposes stream-length and pending-record gauges on port 8081.
 
 ## Human decisions still required
 

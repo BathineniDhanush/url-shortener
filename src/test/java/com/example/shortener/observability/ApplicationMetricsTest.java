@@ -24,6 +24,7 @@ class ApplicationMetricsTest {
         metrics.analyticsConsumerEvent(ApplicationMetrics.ConsumerOutcome.PROCESSED);
         metrics.analyticsConsumerEvent(ApplicationMetrics.ConsumerOutcome.RETRY);
         metrics.analyticsConsumerEvent(ApplicationMetrics.ConsumerOutcome.DEAD_LETTERED);
+        metrics.analyticsBacklog(17, 3);
 
         assertEquals(Set.of("hit", "negative_hit", "miss", "error"),
             tagValues(registry, ApplicationMetrics.CACHE_LOOKUPS, "result"));
@@ -33,6 +34,8 @@ class ApplicationMetricsTest {
             tagValues(registry, ApplicationMetrics.ANALYTICS_CONSUMER_EVENTS, "outcome"));
         assertEquals(1.0,
             registry.get(ApplicationMetrics.CACHE_LOOKUPS).tag("result", "hit").counter().count());
+        assertEquals(17.0, registry.get(ApplicationMetrics.ANALYTICS_STREAM_LENGTH).gauge().value());
+        assertEquals(3.0, registry.get(ApplicationMetrics.ANALYTICS_PENDING).gauge().value());
     }
 
     private Set<String> tagValues(SimpleMeterRegistry registry, String metricName, String tagName) {

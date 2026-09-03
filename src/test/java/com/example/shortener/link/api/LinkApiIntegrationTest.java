@@ -2,6 +2,9 @@ package com.example.shortener.link.api;
 
 import com.example.shortener.domain.analytics.AnalyticsRepository;
 import com.example.shortener.domain.analytics.ClickEvent;
+import com.example.shortener.link.application.ManageLinkService;
+import com.example.shortener.link.domain.LinkStatus;
+import com.example.shortener.link.error.ConcurrentLinkUpdateException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,10 +28,12 @@ import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -57,6 +62,9 @@ class LinkApiIntegrationTest {
 
     @Autowired
     private AnalyticsRepository analyticsRepository;
+
+    @Autowired
+    private ManageLinkService manageLinkService;
 
     @BeforeEach
     void clearState() {
@@ -181,5 +189,109 @@ class LinkApiIntegrationTest {
         ClickEvent persisted = analyticsRepository.findByLinkId(linkId).get(0);
         org.junit.jupiter.api.Assertions.assertEquals(eventId, persisted.eventId());
         org.junit.jupiter.api.Assertions.assertEquals(occurredAt, persisted.timestamp());
+    }
+
+    @Test
+    void ownerCanReadUpdateDisableAndEnableWhileUnauthorizedRequestsAreRejected() throws Exception {
+        String createdBody = mockMvc.perform(post("/api/v1/links")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"destinationUrl":"https://example.com/old","customAlias":"owned-link"}
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.ownerToken").isString())
+                .andExpect(jsonPath("$.version").value(0))
+                .andReturn().getResponse().getContentAsString();
+        String token = objectMapper.readTree(createdBody).get("ownerToken").asText();
+
+        mockMvc.perform(get("/api/v1/links/owned-link"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/links/owned-link")
+                        .header("X-Link-Owner-Token", "wrong-token"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/links/owned-link")
+                        .header("X-Link-Owner-Token", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownerToken").doesNotExist());
+
+        mockMvc.perform(get("/owned-link")).andExpect(status().isFound());
+        mockMvc.perform(patch("/api/v1/links/owned-link")
+                        .header("X-Link-Owner-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"expectedVersion":0,"destinationUrl":"https://example.com/new","status":"DISABLED"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(1));
+        mockMvc.perform(get("/owned-link")).andExpect(status().isGone());
+
+        mockMvc.perform(patch("/api/v1/links/owned-link")
+                        .header("X-Link-Owner-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0,\"status\":\"ACTIVE\"}"))
+                .andExpect(status().isConflict());
+
+        mockMvc.perform(patch("/api/v1/links/owned-link")
+                        .header("X-Link-Owner-Token", token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":1,\"status\":\"ACTIVE\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(2));
+        mockMvc.perform(get("/owned-link"))
+                .andExpect(status().isFound())
+                .andExpect(header().string("Location", "https://example.com/new"));
+
+        mockMvc.perform(get("/api/v1/links/owned-link/analytics"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/links/owned-link/analytics")
+                        .header("X-Link-Owner-Token", token))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void enforcesAtomicRedisBackedCreationRateLimit() {
+        var limiter = new com.example.shortener.link.application.CreationRateLimiter(
+                redisTemplate, 2, java.time.Duration.ofSeconds(30));
+        limiter.check("192.0.2.10");
+        limiter.check("192.0.2.10");
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.example.shortener.link.error.RateLimitExceededException.class,
+                () -> limiter.check("192.0.2.10"));
+        limiter.check("192.0.2.11");
+    }
+
+    @Test
+    void allowsOnlyOneConcurrentUpdateForTheSameVersion() throws Exception {
+        String body = mockMvc.perform(post("/api/v1/links")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"destinationUrl":"https://example.com/start","customAlias":"concurrent-link"}
+                                """))
+                .andReturn().getResponse().getContentAsString();
+        String token = objectMapper.readTree(body).get("ownerToken").asText();
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        java.util.concurrent.Callable<Boolean> update = () -> {
+            start.await();
+            try {
+                manageLinkService.update("concurrent-link", token, 0,
+                        "https://example.com/updated", LinkStatus.ACTIVE, null);
+                return true;
+            } catch (ConcurrentLinkUpdateException exception) {
+                return false;
+            }
+        };
+        var first = executor.submit(update);
+        var second = executor.submit(update);
+        start.countDown();
+        try {
+            assertEquals(1, java.util.stream.Stream.of(first.get(), second.get())
+                    .filter(Boolean::booleanValue).count());
+            assertEquals(1L, jdbcTemplate.queryForObject(
+                    "SELECT version FROM links WHERE code = 'concurrent-link'", Long.class));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 }
