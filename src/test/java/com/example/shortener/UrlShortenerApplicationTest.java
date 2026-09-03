@@ -1,6 +1,9 @@
 package com.example.shortener;
 
 import com.example.shortener.link.infrastructure.JdbcLinkRepository;
+import com.example.shortener.infrastructure.analytics.JdbcAnalyticsRepository;
+import com.example.shortener.infrastructure.cache.LinkCache;
+import com.example.shortener.redirect.api.AnalyticsPublisher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -20,6 +23,15 @@ class UrlShortenerApplicationTest {
 
     @MockitoBean
     private JdbcLinkRepository linkRepository;
+
+    @MockitoBean
+    private JdbcAnalyticsRepository analyticsRepository;
+
+    @MockitoBean
+    private LinkCache linkCache;
+
+    @MockitoBean
+    private AnalyticsPublisher analyticsPublisher;
 
     @Autowired
     private MockMvc mockMvc;

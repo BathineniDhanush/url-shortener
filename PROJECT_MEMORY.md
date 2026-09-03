@@ -26,7 +26,7 @@ Spring Boot and Maven are mandatory for API development.
 - Canonical repository: `E:\Projects\url-shortener`
 - Previous location: `C:\Users\dhanu\OneDrive\Documents\ChatGPT\url-shortner` (do not use)
 - Package root: `com.example.shortener`
-- The repository was freshly initialized and, at the time of this handoff, has no commits. All project files are untracked. Check `git status` before making changes.
+- Baseline commit: `dc4c900 initial commit`. The working tree currently contains uncommitted CI/CD work and a separate in-progress analytics slice; check `git status` and preserve both sets of changes.
 - Existing files belong to the user; do not discard or overwrite unrelated changes.
 
 ## Technology baseline
@@ -157,6 +157,8 @@ cd E:\Projects\url-shortener
 
 Result: 10 tests passed, 0 failures, 0 errors, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`.
 
+After the analytics slice was added concurrently, Maven compilation succeeds but the full test suite is currently red: API integration tests require Redis, and the `test` profile still instantiates `JdbcAnalyticsRepository` after JDBC auto-configuration is excluded. The CI workflows now provide Redis; the analytics slice must conditionally disable/mock its JDBC beans in the smoke-test profile before `clean verify` will pass again.
+
 Coverage currently includes:
 
 - Destination URL policy unit tests.
@@ -188,9 +190,19 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - No observability beyond baseline Actuator endpoints.
 - No load, latency, resilience, or security testing.
 - No OpenAPI document.
-- No CI pipeline, deployment manifests, authentication secrets management, or production TLS/proxy configuration.
+- No runtime deployment target, deployment manifests, authentication secrets management, or production TLS/proxy configuration.
 - Generated-code collision retry behavior lacks a focused service-level unit test.
-- All files are currently uncommitted, so establish a baseline commit when the user requests it.
+- CI/CD and the concurrent analytics slice are currently uncommitted; keep their changes separated when reviewing or committing.
+
+## CI/CD baseline
+
+- `.github/workflows/ci.yml` runs Maven verification, a Docker build, and a blocking Trivy high/critical vulnerability scan for pull requests, non-`main` branch pushes, and manual runs.
+- `.github/workflows/delivery.yml` verifies trusted `main`/version-tag/manual runs, builds and scans the image before publication, then publishes to `ghcr.io/<owner>/<repository>` with OCI metadata, provenance, and an SBOM.
+- Delivery uses only the scoped `GITHUB_TOKEN`; the publish job alone receives `packages: write`, `attestations: write`, and `id-token: write`.
+- `latest`, branch, commit SHA, and semantic-version image tags are generated as applicable. Repository names are normalized to lowercase for OCI compatibility.
+- `.github/dependabot.yml` checks GitHub Actions, Maven, and Docker dependencies weekly.
+- The delivery security gate required patched Netty `4.1.136.Final`, PostgreSQL JDBC `42.7.12`, and current Alpine runtime packages; these are explicit build inputs in `pom.xml` and `Dockerfile`.
+- Actual deployment is intentionally not implemented because no hosting platform, environment credentials, health gate, or rollback contract has been selected.
 
 ## Recommended next slice: asynchronous click analytics
 

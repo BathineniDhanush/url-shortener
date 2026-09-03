@@ -62,6 +62,19 @@ Errors use RFC 9457 problem details. Redirects return `302 Found` with `Cache-Co
 
 `mvn clean verify` runs domain tests, application smoke tests, and API integration tests against a PostgreSQL 17 Testcontainer. The integration suite covers generated links, custom alias conflicts, invalid and expired requests, redirect resolution, and missing codes.
 
+## CI/CD
+
+GitHub Actions provides two guarded pipelines:
+
+- `CI` runs Maven verification with a health-checked Redis service, builds the container, and blocks on fixable high or critical vulnerabilities for pull requests, non-`main` branch pushes, and manual runs.
+- `Delivery` repeats verification for trusted `main`, semantic version tag (`v*.*.*`), or manual runs; it scans before publishing the image to `ghcr.io/<owner>/<repository>` with provenance and an SBOM.
+
+Published tags include `latest` on the default branch, the branch name, `sha-<commit>`, and semantic-version tags when a release tag is pushed. The workflow uses the scoped `GITHUB_TOKEN`; no registry password is required. Repository settings must allow Actions to write packages.
+
+Dependabot checks GitHub Actions, Maven, and Docker dependencies weekly. Configure `Maven verification` and `Container build and vulnerability scan` as required checks on `main` to prevent unverified merges.
+
+This pipeline performs continuous delivery to GHCR, not deployment to a runtime environment. Add a deployment job with a protected GitHub Environment after selecting the hosting platform and defining rollback and health-check behavior.
+
 ## Next slice
 
 Publish redirect click events, consume them in the worker, aggregate analytics, and add Redis read-through caching with explicit invalidation rules.
