@@ -2,6 +2,10 @@ spring:
   main:
     web-application-type: none
     keep-alive: true
+  data:
+    redis:
+      # XREAD blocks for five seconds, so the worker command timeout must be longer.
+      timeout: ${REDIS_WORKER_COMMAND_TIMEOUT:6s}
   flyway:
     enabled: false
 app:
