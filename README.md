@@ -24,6 +24,8 @@ Useful initial endpoints:
 
 - `POST /api/v1/links` creates a short link
 - `GET /{code}` returns a temporary redirect to the destination
+- `GET /api/v1/links/{code}/analytics` returns the persisted click total
+- `GET /openapi.yaml` returns the OpenAPI 3.1 contract
 - `GET /api/v1/system/info`
 - `GET /actuator/health`
 - `GET /actuator/health/liveness`
@@ -69,6 +71,8 @@ Errors use RFC 9457 problem details. Redirects return `302 Found` with `Cache-Co
 
 Each worker replica needs a unique, stable `ANALYTICS_CONSUMER_NAME`; the default Compose worker uses `worker-1`. `ANALYTICS_MAX_ATTEMPTS` defaults to `3`. A failed record remains pending for retry and is acknowledged only after successful persistence or after it is copied to the `clicks:dead-letter` stream. For production, alert on that stream and define an operator replay procedure.
 
+Operational inspection and replay procedures are in [the analytics worker runbook](docs/analytics-worker-runbook.md). The API exposes cache and analytics-publication counters through Actuator using bounded outcome tags. Worker processing counters require an external exporter because the worker profile intentionally has no HTTP server.
+
 ## CI/CD
 
 GitHub Actions provides two guarded pipelines:
@@ -81,6 +85,8 @@ Published tags include `latest` on the default branch, the branch name, `sha-<co
 Dependabot checks GitHub Actions, Maven, and Docker dependencies weekly. Configure `Maven verification` and `Container build and vulnerability scan` as required checks on `main` to prevent unverified merges.
 
 This pipeline performs continuous delivery to GHCR, not deployment to a runtime environment. Add a deployment job with a protected GitHub Environment after selecting the hosting platform and defining rollback and health-check behavior.
+
+Required-check configuration, release handling, scan triage, and rollback constraints are documented in [the CI/CD runbook](docs/ci-cd-runbook.md).
 
 ## Next slice
 

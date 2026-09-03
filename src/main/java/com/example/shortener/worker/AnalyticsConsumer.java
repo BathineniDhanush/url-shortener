@@ -2,6 +2,7 @@ package com.example.shortener.worker;
 
 import com.example.shortener.domain.analytics.ClickEvent;
 import com.example.shortener.domain.analytics.AnalyticsRepository;
+import com.example.shortener.observability.ApplicationMetrics;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -42,17 +44,20 @@ public class AnalyticsConsumer implements ApplicationRunner {
     private final AnalyticsRepository analyticsRepository;
     private final String consumerName;
     private final int maxAttempts;
+    private final ApplicationMetrics metrics;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Map<RecordId, Integer> failureCounts = new ConcurrentHashMap<>();
     private ExecutorService executor;
 
     public AnalyticsConsumer(StringRedisTemplate redisTemplate, AnalyticsRepository analyticsRepository,
                              @Value("${app.analytics.consumer-name:worker-1}") String consumerName,
-                             @Value("${app.analytics.max-attempts:3}") int maxAttempts) {
+                             @Value("${app.analytics.max-attempts:3}") int maxAttempts,
+                             ApplicationMetrics metrics) {
         this.redisTemplate = redisTemplate;
         this.analyticsRepository = analyticsRepository;
         this.consumerName = consumerName;
         this.maxAttempts = Math.max(1, maxAttempts);
+        this.metrics = metrics;
     }
 
     @Override
@@ -84,6 +89,9 @@ public class AnalyticsConsumer implements ApplicationRunner {
                 processBatch(ReadOffset.from("0-0"), Duration.ZERO);
                 processBatch(ReadOffset.lastConsumed(), READ_TIMEOUT);
             } catch (Exception e) {
+                if (!running.get() || Thread.currentThread().isInterrupted()) {
+                    break;
+                }
                 log.error("Error consuming analytics stream: {}", e.getMessage());
                 ensureConsumerGroupExists();
                 try {
@@ -101,48 +109,51 @@ public class AnalyticsConsumer implements ApplicationRunner {
         if (!blockTimeout.isZero()) {
             options = options.block(blockTimeout);
         }
-        var records = redisTemplate.opsForStream().read(
+        List<MapRecord<String, String, String>> records = redisTemplate.<String, String>opsForStream().read(
             Consumer.from(GROUP_NAME, consumerName),
             options,
-            StreamOffset.create(STREAM_KEY, offset)
+            streamOffsets(offset)
         );
         if (records != null) {
             records.forEach(this::processRecord);
         }
     }
 
-    private void processRecord(MapRecord<String, Object, Object> record) {
-        var data = record.getValue();
+    private void processRecord(MapRecord<String, String, String> record) {
+        Map<String, String> data = record.getValue();
         try {
             var event = new ClickEvent(
                 UUID.fromString(String.valueOf(data.get("eventId"))),
                 UUID.fromString(String.valueOf(data.get("linkId"))),
                 Instant.parse(String.valueOf(data.get("timestamp"))),
-                (String) data.get("ip"),
-                (String) data.get("ua")
+                data.get("ip"),
+                data.get("ua")
             );
             analyticsRepository.save(event);
+            metrics.analyticsConsumerEvent(ApplicationMetrics.ConsumerOutcome.PROCESSED);
             acknowledge(record);
         } catch (Exception e) {
             int attempts = failureCounts.merge(record.getId(), 1, Integer::sum);
             if (attempts >= maxAttempts) {
                 moveToDeadLetter(record, e, attempts);
             } else {
+                metrics.analyticsConsumerEvent(ApplicationMetrics.ConsumerOutcome.RETRY);
                 log.warn("Click event {} failed on attempt {}/{} and remains pending: {}",
                     record.getId(), attempts, maxAttempts, e.getMessage());
             }
         }
     }
 
-    private void moveToDeadLetter(MapRecord<String, Object, Object> record, Exception failure, int attempts) {
+    private void moveToDeadLetter(MapRecord<String, String, String> record, Exception failure, int attempts) {
         try {
-            Map<Object, Object> deadLetter = new HashMap<>(record.getValue());
+            Map<String, String> deadLetter = new HashMap<>(record.getValue());
             deadLetter.put("sourceRecordId", record.getId().getValue());
             deadLetter.put("attempts", Integer.toString(attempts));
             deadLetter.put("failure", truncate(failure.getMessage(), 256));
             deadLetter.put("failedAt", Instant.now().toString());
-            redisTemplate.opsForStream().add(DEAD_LETTER_STREAM_KEY, deadLetter);
+            redisTemplate.<String, String>opsForStream().add(DEAD_LETTER_STREAM_KEY, deadLetter);
             acknowledge(record);
+            metrics.analyticsConsumerEvent(ApplicationMetrics.ConsumerOutcome.DEAD_LETTERED);
             log.error("Click event {} moved to dead-letter stream after {} attempts", record.getId(), attempts);
         } catch (Exception deadLetterFailure) {
             log.error("Unable to dead-letter click event {}; it remains pending: {}",
@@ -150,7 +161,7 @@ public class AnalyticsConsumer implements ApplicationRunner {
         }
     }
 
-    private void acknowledge(MapRecord<String, Object, Object> record) {
+    private void acknowledge(MapRecord<String, String, String> record) {
         redisTemplate.opsForStream().acknowledge(STREAM_KEY, GROUP_NAME, record.getId());
         failureCounts.remove(record.getId());
     }
@@ -158,6 +169,11 @@ public class AnalyticsConsumer implements ApplicationRunner {
     private String truncate(String value, int maximumLength) {
         String safeValue = value == null ? "unknown" : value;
         return safeValue.length() <= maximumLength ? safeValue : safeValue.substring(0, maximumLength);
+    }
+
+    @SuppressWarnings("unchecked") // Spring Data exposes stream offsets as a generic varargs array.
+    private StreamOffset<String>[] streamOffsets(ReadOffset offset) {
+        return (StreamOffset<String>[]) new StreamOffset<?>[]{StreamOffset.create(STREAM_KEY, offset)};
     }
 
     @PreDestroy

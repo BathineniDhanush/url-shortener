@@ -18,6 +18,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.connection.RedisConnection;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -61,7 +62,9 @@ class LinkApiIntegrationTest {
     void clearState() {
         jdbcTemplate.update("DELETE FROM analytics");
         jdbcTemplate.update("DELETE FROM links");
-        redisTemplate.getConnectionFactory().getConnection().flushDb();
+        try (RedisConnection connection = redisTemplate.getConnectionFactory().getConnection()) {
+            connection.serverCommands().flushDb();
+        }
     }
 
     @Test

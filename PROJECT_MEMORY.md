@@ -62,7 +62,8 @@ Important areas:
 - `redirect/api` and `redirect/application`: redirect resolution.
 - `shared/api`: centralized RFC 9457 problem-detail responses.
 - `configuration`: clock and API/worker runtime configuration.
-- `worker`: worker runtime boundary; analytics consumption is not implemented.
+- `worker`: Redis Stream consumption, bounded in-process retries, idempotent persistence, dead-lettering, and graceful shutdown.
+- `observability`: centralized low-cardinality cache, publication, processing, retry, and dead-letter counters.
 
 One deployable artifact supports two runtime roles through Spring profiles:
 
@@ -141,6 +142,7 @@ Defaults are defined in `src/main/resources/application.yml`:
 - Public short-link base URL: `http://localhost:8080`
 - Graceful shutdown enabled.
 - Actuator exposes health, info, and metrics; liveness/readiness probes are enabled.
+- The API serves the OpenAPI 3.1 contract at `/openapi.yaml`.
 
 Environment overrides include `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_POOL_SIZE`, `REDIS_HOST`, `REDIS_PORT`, and `PUBLIC_BASE_URL`.
 
@@ -155,14 +157,19 @@ cd E:\Projects\url-shortener
 .\mvnw.cmd -B clean verify
 ```
 
-Result: 10 tests passed, 0 failures, 0 errors, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`.
+Result on 2026-09-02: 29 tests passed, 0 failures, 0 errors, no Java lint warnings, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`.
 
 The earlier intermittent integration failure was caused by Redis state leaking between tests. The suite now flushes its isolated Redis Testcontainer before each test and deletes analytics rows before parent links. Verification also covers PostgreSQL `TIMESTAMPTZ` binding, idempotent event writes, and database-side click counting.
 
 Coverage currently includes:
 
 - Destination URL policy unit tests.
+- Privacy tests for IPv4 `/24` and IPv6 `/64` anonymization, malformed literals, missing values, and bounded header-safe User-Agent storage.
 - Secure short-code shape unit test.
+- Redirect cache tests for positive/negative hits, database misses, stale cached link rejection, and expiration-capped TTLs.
+- Redis integration tests for worker persistence acknowledgement, pending-message retries, poison-message dead-lettering, and acknowledgement after dead-lettering.
+- Metric-contract tests for stable low-cardinality names/tags and Actuator exposure.
+- An application smoke test proving `/openapi.yaml` is served with the core link and analytics paths.
 - Application context and API-profile smoke tests.
 - PostgreSQL 17 Testcontainer integration tests for generated creation and redirect, custom-alias conflict, unsafe/expired input, and missing code.
 
@@ -173,7 +180,7 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - Use PostgreSQL uniqueness rather than a pre-insert existence check to prevent alias races.
 - Use a cryptographically secure random Base62 identifier rather than sequential IDs to reduce enumeration and avoid a central sequence encoder.
 - Return `302`, not `301`, because destinations, link state, and expiration may change.
-- Keep redirects uncached initially for correctness. Redis read-through caching requires explicit negative-cache, TTL, expiration, and invalidation rules.
+- Use Redis read-through caching with distinct positive, negative, miss, and error states. Revalidate cached status/expiration and cap positive TTL at the link's remaining lifetime.
 - Inject `Clock` so time-dependent expiration behavior can be tested deterministically.
 - Keep API and worker runtime boundaries in one artifact for prototype speed while retaining a path to independent scaling.
 - Use direct JDBC for a small, explicit persistence surface rather than introducing ORM lifecycle complexity.
@@ -188,9 +195,9 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - Retry attempt counts are in process memory; a worker restart resets the poison-message attempt budget.
 - Dead-letter records require monitoring and an operator replay procedure.
 - Cache invalidation for future update/disable operations is not implemented because those mutation APIs do not yet exist.
-- No observability beyond baseline Actuator endpoints.
+- Worker counters are registered, but the non-web worker profile has no external metrics exporter or management HTTP server yet.
+- Consumer lag and pending-record gauges are not implemented.
 - No load, latency, resilience, or security testing.
-- No OpenAPI document.
 - No runtime deployment target, deployment manifests, authentication secrets management, or production TLS/proxy configuration.
 - Generated-code collision retry behavior lacks a focused service-level unit test.
 - CI/CD and the concurrent analytics slice are currently uncommitted; keep their changes separated when reviewing or committing.
@@ -202,6 +209,8 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - Delivery uses only the scoped `GITHUB_TOKEN`; the publish job alone receives `packages: write`, `attestations: write`, and `id-token: write`.
 - `latest`, branch, commit SHA, and semantic-version image tags are generated as applicable. Repository names are normalized to lowercase for OCI compatibility.
 - `.github/dependabot.yml` checks GitHub Actions, Maven, and Docker dependencies weekly.
+- `docs/ci-cd-runbook.md` documents exact required checks, release tags, failure triage, GHCR permissions, and rollback constraints.
+- `docs/analytics-worker-runbook.md` documents pending/dead-letter inspection, idempotent replay, retired-consumer recovery, shutdown, and current operational gaps.
 - The delivery security gate required patched Netty `4.1.136.Final`, PostgreSQL JDBC `42.7.12`, and current Alpine runtime packages; these are explicit build inputs in `pom.xml` and `Dockerfile`.
 - Actual deployment is intentionally not implemented because no hosting platform, environment credentials, health gate, or rollback contract has been selected.
 
@@ -211,7 +220,7 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 2. Add lookup, disable, and destination-update operations with optimistic concurrency.
 3. Invalidate positive and negative cache entries after committed mutations.
 4. Add authorization, rate limiting, audit events, and focused concurrency tests.
-5. Add worker lag/pending/dead-letter metrics and an operational replay runbook.
+5. Add worker lag and pending-record gauges plus an externally scrapeable worker metrics backend.
 
 ## Human decisions still required
 

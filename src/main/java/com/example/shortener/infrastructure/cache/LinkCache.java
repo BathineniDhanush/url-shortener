@@ -1,6 +1,7 @@
 package com.example.shortener.infrastructure.cache;
 
 import com.example.shortener.link.domain.Link;
+import com.example.shortener.observability.ApplicationMetrics;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -9,8 +10,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.Optional;
-
 @Component
 public class LinkCache {
     private static final Logger log = LoggerFactory.getLogger(LinkCache.class);
@@ -19,10 +18,12 @@ public class LinkCache {
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
+    private final ApplicationMetrics metrics;
 
-    public LinkCache(StringRedisTemplate redisTemplate, ObjectMapper objectMapper) {
+    public LinkCache(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, ApplicationMetrics metrics) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     public CacheResult<Link> get(String code) {
@@ -30,21 +31,27 @@ public class LinkCache {
         try {
             String value = redisTemplate.opsForValue().get(key);
             if (value == null) {
+                metrics.cacheLookup(ApplicationMetrics.CacheOutcome.MISS);
                 return CacheResult.miss();
             }
 
             if (NOT_FOUND_MARKER.equals(value)) {
+                metrics.cacheLookup(ApplicationMetrics.CacheOutcome.NEGATIVE_HIT);
                 log.debug("Cache hit (negative cache) for code: {}", code);
                 return CacheResult.negativeHit();
             }
 
             try {
-                return CacheResult.hit(objectMapper.readValue(value, Link.class));
+                Link link = objectMapper.readValue(value, Link.class);
+                metrics.cacheLookup(ApplicationMetrics.CacheOutcome.HIT);
+                return CacheResult.hit(link);
             } catch (JsonProcessingException e) {
+                metrics.cacheLookup(ApplicationMetrics.CacheOutcome.ERROR);
                 log.error("Failed to deserialize cached link for code {}: {}", code, e.getMessage());
                 return CacheResult.miss();
             }
         } catch (Exception e) {
+            metrics.cacheLookup(ApplicationMetrics.CacheOutcome.ERROR);
             log.warn("Redis error during cache get for code {}: {}", code, e.getMessage());
             return CacheResult.miss();
         }

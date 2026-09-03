@@ -1,12 +1,11 @@
 package com.example.shortener.domain.util;
 
-import java.util.regex.Pattern;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 
 public final class PrivacyUtils {
     private static final int MAX_USER_AGENT_LENGTH = 512;
-
-    private static final Pattern IPV4_PATTERN = Pattern.compile("^(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})\\.\\d{1,3}$");
-    private static final Pattern IPV6_PATTERN = Pattern.compile("^([a-fA-F0-9:]+:[a-fA-F0-9:]+:[a-fA-F0-9:]+:[a-fA-F0-9:]+):[a-fA-F0-9:]+$");
 
     private PrivacyUtils() {
     }
@@ -16,17 +15,15 @@ public final class PrivacyUtils {
             return null;
         }
 
-        var v4Matcher = IPV4_PATTERN.matcher(ip);
-        if (v4Matcher.matches()) {
-            return v4Matcher.group(1) + ".0";
+        String candidate = ip.trim();
+        if (candidate.indexOf(':') < 0) {
+            return anonymizeIpv4(candidate);
+        }
+        if (candidate.indexOf('%') >= 0) {
+            return "unknown";
         }
 
-        var v6Matcher = IPV6_PATTERN.matcher(ip);
-        if (v6Matcher.matches()) {
-            return v6Matcher.group(1) + "::0";
-        }
-
-        return "unknown";
+        return anonymizeIpv6(candidate);
     }
 
     public static String filterUserAgent(String ua) {
@@ -37,5 +34,44 @@ public final class PrivacyUtils {
         return sanitized.length() <= MAX_USER_AGENT_LENGTH
             ? sanitized
             : sanitized.substring(0, MAX_USER_AGENT_LENGTH);
+    }
+
+    private static String anonymizeIpv4(String candidate) {
+        String[] octets = candidate.split("\\.", -1);
+        if (octets.length != 4) {
+            return "unknown";
+        }
+        for (String octet : octets) {
+            if (octet.isEmpty() || !octet.chars().allMatch(Character::isDigit)) {
+                return "unknown";
+            }
+            try {
+                if (Integer.parseInt(octet) > 255) {
+                    return "unknown";
+                }
+            } catch (NumberFormatException exception) {
+                return "unknown";
+            }
+        }
+        return String.join(".", octets[0], octets[1], octets[2], "0");
+    }
+
+    private static String anonymizeIpv6(String candidate) {
+        try {
+            InetAddress address = InetAddress.getByName(candidate);
+            if (!(address instanceof Inet6Address)) {
+                return "unknown";
+            }
+            byte[] bytes = address.getAddress();
+            return String.format("%x:%x:%x:%x::",
+                unsignedHextet(bytes, 0), unsignedHextet(bytes, 2),
+                unsignedHextet(bytes, 4), unsignedHextet(bytes, 6));
+        } catch (UnknownHostException exception) {
+            return "unknown";
+        }
+    }
+
+    private static int unsignedHextet(byte[] bytes, int offset) {
+        return (Byte.toUnsignedInt(bytes[offset]) << 8) | Byte.toUnsignedInt(bytes[offset + 1]);
     }
 }
