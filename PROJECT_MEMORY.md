@@ -159,6 +159,8 @@ cd E:\Projects\url-shortener
 
 Result on 2026-09-02: 29 tests passed, 0 failures, 0 errors, no Java lint warnings, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`.
 
+Security validation on 2026-09-03 rebuilt the runtime image with Tomcat `10.1.59` and scanned it using a freshly downloaded Trivy vulnerability and Java advisory database. Both the Alpine layer and `app/app.jar` reported zero `HIGH` or `CRITICAL` vulnerabilities.
+
 The earlier intermittent integration failure was caused by Redis state leaking between tests. The suite now flushes its isolated Redis Testcontainer before each test and deletes analytics rows before parent links. Verification also covers PostgreSQL `TIMESTAMPTZ` binding, idempotent event writes, and database-side click counting.
 
 Coverage currently includes:
@@ -211,7 +213,7 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - `.github/dependabot.yml` checks GitHub Actions, Maven, and Docker dependencies weekly.
 - `docs/ci-cd-runbook.md` documents exact required checks, release tags, failure triage, GHCR permissions, and rollback constraints.
 - `docs/analytics-worker-runbook.md` documents pending/dead-letter inspection, idempotent replay, retired-consumer recovery, shutdown, and current operational gaps.
-- The delivery security gate required patched Netty `4.1.136.Final`, PostgreSQL JDBC `42.7.12`, and current Alpine runtime packages; these are explicit build inputs in `pom.xml` and `Dockerfile`.
+- The delivery security gate requires patched Netty `4.1.136.Final`, PostgreSQL JDBC `42.7.12`, Tomcat `10.1.59`, and current Alpine runtime packages; these are explicit build inputs in `pom.xml` and `Dockerfile`. Tomcat `10.1.59` supersedes the unreleased `10.1.58` candidate and fixes the vulnerabilities affecting versions through `10.1.57`.
 - Actual deployment is intentionally not implemented because no hosting platform, environment credentials, health gate, or rollback contract has been selected.
 
 ## Recommended next slice: ownership and link management
