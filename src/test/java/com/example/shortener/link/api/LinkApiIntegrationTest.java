@@ -1,5 +1,7 @@
 package com.example.shortener.link.api;
 
+import com.example.shortener.domain.analytics.AnalyticsRepository;
+import com.example.shortener.domain.analytics.ClickEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +20,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -51,9 +54,14 @@ class LinkApiIntegrationTest {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
+    @Autowired
+    private AnalyticsRepository analyticsRepository;
+
     @BeforeEach
-    void clearLinks() {
+    void clearState() {
+        jdbcTemplate.update("DELETE FROM analytics");
         jdbcTemplate.update("DELETE FROM links");
+        redisTemplate.getConnectionFactory().getConnection().flushDb();
     }
 
     @Test
@@ -146,5 +154,29 @@ class LinkApiIntegrationTest {
 
         var streamInfoAfter = redisTemplate.opsForStream().size("clicks:stream");
         org.junit.jupiter.api.Assertions.assertEquals(2L, streamInfoAfter);
+    }
+
+    @Test
+    void persistsAnalyticsTimestampIdempotentlyAndCountsInDatabase() throws Exception {
+        mockMvc.perform(post("/api/v1/links")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"destinationUrl":"https://example.com/analytics-test","customAlias":"analytics-test"}
+                        """))
+            .andExpect(status().isCreated());
+
+        UUID linkId = jdbcTemplate.queryForObject(
+            "SELECT id FROM links WHERE code = ?", UUID.class, "analytics-test");
+        UUID eventId = UUID.randomUUID();
+        Instant occurredAt = Instant.parse("2026-09-02T12:34:56.123456Z");
+        ClickEvent event = new ClickEvent(eventId, linkId, occurredAt, "192.0.2.0", "test-agent");
+
+        analyticsRepository.save(event);
+        analyticsRepository.save(event);
+
+        org.junit.jupiter.api.Assertions.assertEquals(1L, analyticsRepository.countByLinkId(linkId));
+        ClickEvent persisted = analyticsRepository.findByLinkId(linkId).get(0);
+        org.junit.jupiter.api.Assertions.assertEquals(eventId, persisted.eventId());
+        org.junit.jupiter.api.Assertions.assertEquals(occurredAt, persisted.timestamp());
     }
 }

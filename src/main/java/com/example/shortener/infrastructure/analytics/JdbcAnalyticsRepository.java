@@ -6,6 +6,8 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -29,7 +31,7 @@ public class JdbcAnalyticsRepository implements AnalyticsRepository {
         MapSqlParameterSource params = new MapSqlParameterSource()
             .addValue("id", event.eventId())
             .addValue("linkId", event.linkId())
-            .addValue("timestamp", event.timestamp())
+            .addValue("timestamp", event.timestamp().atOffset(ZoneOffset.UTC))
             .addValue("ip", event.anonymizedIp())
             .addValue("ua", event.userAgent());
 
@@ -50,5 +52,13 @@ public class JdbcAnalyticsRepository implements AnalyticsRepository {
             rs.getString("anonymized_ip"),
             rs.getString("user_agent")
         ));
+    }
+
+    @Override
+    public long countByLinkId(UUID linkId) {
+        String sql = "SELECT count(*) FROM analytics WHERE link_id = :linkId";
+        MapSqlParameterSource params = new MapSqlParameterSource()
+            .addValue("linkId", linkId);
+        return jdbcTemplate.queryForObject(sql, params, Long.class);
     }
 }

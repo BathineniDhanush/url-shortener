@@ -6,4 +6,5 @@ import java.util.UUID;
 public interface AnalyticsRepository {
     void save(ClickEvent event);
     List<ClickEvent> findByLinkId(UUID linkId);
+    long countByLinkId(UUID linkId);
 }

@@ -25,28 +25,28 @@ public class LinkCache {
         this.objectMapper = objectMapper;
     }
 
-    public Optional<Link> get(String code) {
+    public CacheResult<Link> get(String code) {
         String key = CACHE_PREFIX + code;
         try {
             String value = redisTemplate.opsForValue().get(key);
             if (value == null) {
-                return Optional.empty();
+                return CacheResult.miss();
             }
 
             if (NOT_FOUND_MARKER.equals(value)) {
-                log.debug("Cache miss (negative cache) for code: {}", code);
-                return Optional.empty();
+                log.debug("Cache hit (negative cache) for code: {}", code);
+                return CacheResult.negativeHit();
             }
 
             try {
-                return Optional.of(objectMapper.readValue(value, Link.class));
+                return CacheResult.hit(objectMapper.readValue(value, Link.class));
             } catch (JsonProcessingException e) {
                 log.error("Failed to deserialize cached link for code {}: {}", code, e.getMessage());
-                return Optional.empty();
+                return CacheResult.miss();
             }
         } catch (Exception e) {
             log.warn("Redis error during cache get for code {}: {}", code, e.getMessage());
-            return Optional.empty();
+            return CacheResult.miss();
         }
     }
 

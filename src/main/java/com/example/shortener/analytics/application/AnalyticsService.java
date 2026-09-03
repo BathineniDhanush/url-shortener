@@ -16,7 +16,7 @@ public class AnalyticsService {
     }
 
     public long getTotalClicks(String code, UUID linkId) {
-        return analyticsRepository.findByLinkId(linkId).size();
+        return analyticsRepository.countByLinkId(linkId);
     }
 
     public List<ClickEvent> getClickEvents(UUID linkId) {

@@ -54,13 +54,20 @@ Only absolute `http` and `https` destination URLs are accepted. Aliases are case
 - Application services own creation and resolution use cases.
 - Domain policies validate URLs, aliases, status, and expiration.
 - A JDBC repository persists links in PostgreSQL; Flyway owns schema evolution.
-- Redis and the worker boundary are provisioned for the next analytics/caching slice but are not yet on the redirect path.
+- Redis provides expiration-aware positive caching and short-lived negative caching on the redirect path.
+- Successful redirects publish privacy-filtered click events to a Redis Stream without making analytics availability a redirect dependency.
+- The worker consumes events with at-least-once delivery, idempotently persists them in PostgreSQL, retries pending failures, and dead-letters poison messages.
+- `GET /api/v1/links/{code}/analytics` returns the database-counted click total.
 
 Errors use RFC 9457 problem details. Redirects return `302 Found` with `Cache-Control: no-store` so future disablement and expiration changes take effect without stale client caching.
 
 ## Validation
 
-`mvn clean verify` runs domain tests, application smoke tests, and API integration tests against a PostgreSQL 17 Testcontainer. The integration suite covers generated links, custom alias conflicts, invalid and expired requests, redirect resolution, and missing codes.
+`mvn clean verify` runs domain tests, application smoke tests, and API integration tests against PostgreSQL 17 and Redis Testcontainers. The suite covers link creation/resolution, cache/event publishing, analytics timestamp persistence and idempotency, database-side counting, input validation, and privacy filtering.
+
+## Analytics worker configuration
+
+Each worker replica needs a unique, stable `ANALYTICS_CONSUMER_NAME`; the default Compose worker uses `worker-1`. `ANALYTICS_MAX_ATTEMPTS` defaults to `3`. A failed record remains pending for retry and is acknowledged only after successful persistence or after it is copied to the `clicks:dead-letter` stream. For production, alert on that stream and define an operator replay procedure.
 
 ## CI/CD
 
@@ -77,4 +84,4 @@ This pipeline performs continuous delivery to GHCR, not deployment to a runtime 
 
 ## Next slice
 
-Publish redirect click events, consume them in the worker, aggregate analytics, and add Redis read-through caching with explicit invalidation rules.
+Add authenticated link ownership and management operations (lookup, disable, and update), then connect those mutations to explicit cache invalidation. Add metrics and alerts for stream lag, pending records, retries, and dead-letter volume.

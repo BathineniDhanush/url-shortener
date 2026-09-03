@@ -1,12 +1,15 @@
 package com.example.shortener.domain.util;
 
-import java.util.Optional;
 import java.util.regex.Pattern;
 
-public class PrivacyUtils {
+public final class PrivacyUtils {
+    private static final int MAX_USER_AGENT_LENGTH = 512;
 
     private static final Pattern IPV4_PATTERN = Pattern.compile("^(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})\\.\\d{1,3}$");
     private static final Pattern IPV6_PATTERN = Pattern.compile("^([a-fA-F0-9:]+:[a-fA-F0-9:]+:[a-fA-F0-9:]+:[a-fA-F0-9:]+):[a-fA-F0-9:]+$");
+
+    private PrivacyUtils() {
+    }
 
     public static String anonymizeIp(String ip) {
         if (ip == null || ip.isBlank()) {
@@ -30,7 +33,9 @@ public class PrivacyUtils {
         if (ua == null || ua.isBlank()) {
             return "unknown";
         }
-        // Basic sanitization: trim and limit length to prevent log injection/bloat
-        return ua.trim();
+        String sanitized = ua.replace('\r', ' ').replace('\n', ' ').trim();
+        return sanitized.length() <= MAX_USER_AGENT_LENGTH
+            ? sanitized
+            : sanitized.substring(0, MAX_USER_AGENT_LENGTH);
     }
 }

@@ -26,7 +26,7 @@ Spring Boot and Maven are mandatory for API development.
 - Canonical repository: `E:\Projects\url-shortener`
 - Previous location: `C:\Users\dhanu\OneDrive\Documents\ChatGPT\url-shortner` (do not use)
 - Package root: `com.example.shortener`
-- Baseline commit: `dc4c900 initial commit`. The working tree currently contains uncommitted CI/CD work and a separate in-progress analytics slice; check `git status` and preserve both sets of changes.
+- Baseline commit: `dc4c900 initial commit`; analytics/caching and CI/CD baseline commit: `3ea422d`. The working tree contains follow-up reliability fixes and tests; check `git status` and preserve all user changes.
 - Existing files belong to the user; do not discard or overwrite unrelated changes.
 
 ## Technology baseline
@@ -37,7 +37,7 @@ Spring Boot and Maven are mandatory for API development.
 - Spring MVC, Bean Validation, Actuator
 - Spring JDBC with PostgreSQL 17
 - Flyway schema migrations
-- Spring Data Redis provisioned but not used by business logic yet
+- Spring Data Redis for redirect caching and click-event streaming
 - JUnit 5, Spring Boot Test, and Testcontainers
 - Docker multi-stage image and Docker Compose
 
@@ -67,7 +67,7 @@ Important areas:
 One deployable artifact supports two runtime roles through Spring profiles:
 
 - `api`: serves HTTP APIs and redirects.
-- `worker`: currently starts and remains alive; intended for asynchronous click-event processing.
+- `worker`: consumes Redis Stream click events and idempotently stores them in PostgreSQL.
 
 ## Completed vertical slice: create and resolve links
 
@@ -157,7 +157,7 @@ cd E:\Projects\url-shortener
 
 Result: 10 tests passed, 0 failures, 0 errors, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`.
 
-After the analytics slice was added concurrently, Maven compilation succeeds but the full test suite is currently red: API integration tests require Redis, and the `test` profile still instantiates `JdbcAnalyticsRepository` after JDBC auto-configuration is excluded. The CI workflows now provide Redis; the analytics slice must conditionally disable/mock its JDBC beans in the smoke-test profile before `clean verify` will pass again.
+The earlier intermittent integration failure was caused by Redis state leaking between tests. The suite now flushes its isolated Redis Testcontainer before each test and deletes analytics rows before parent links. Verification also covers PostgreSQL `TIMESTAMPTZ` binding, idempotent event writes, and database-side click counting.
 
 Coverage currently includes:
 
@@ -184,9 +184,10 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - No SSRF network-range policy beyond URL syntax/scheme/credential validation. Decide whether private, loopback, link-local, and metadata-service destinations must be rejected.
 - No Unicode/IDN normalization policy or canonical URL normalization.
 - No link update, disable, delete, or lookup management APIs.
-- No analytics, event delivery, retry/dead-letter handling, or reporting API.
-- Redis is provisioned but unused.
-- No cache invalidation strategy.
+- Analytics reporting is unauthenticated and has no retention policy or aggregate tables.
+- Retry attempt counts are in process memory; a worker restart resets the poison-message attempt budget.
+- Dead-letter records require monitoring and an operator replay procedure.
+- Cache invalidation for future update/disable operations is not implemented because those mutation APIs do not yet exist.
 - No observability beyond baseline Actuator endpoints.
 - No load, latency, resilience, or security testing.
 - No OpenAPI document.
@@ -204,21 +205,13 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - The delivery security gate required patched Netty `4.1.136.Final`, PostgreSQL JDBC `42.7.12`, and current Alpine runtime packages; these are explicit build inputs in `pom.xml` and `Dockerfile`.
 - Actual deployment is intentionally not implemented because no hosting platform, environment credentials, health gate, or rollback contract has been selected.
 
-## Recommended next slice: asynchronous click analytics
+## Recommended next slice: ownership and link management
 
-Do not implement every reliability feature at once. Complete one reviewable vertical slice:
-
-1. Define a versioned click-event contract containing event ID, link ID/code, occurred-at timestamp, and privacy-conscious request metadata.
-2. Decide and document privacy behavior before storing IP address or user-agent data. Prefer derived/coarsened values and avoid raw IP persistence unless explicitly required.
-3. Publish an event from successful redirect resolution without making analytics availability a redirect dependency.
-4. Use Redis Streams for the prototype queue and a consumer group in the worker profile.
-5. Add an idempotent PostgreSQL analytics schema keyed by event ID; consider raw events plus a daily aggregate table only if required by the API.
-6. Add worker retry and pending-message recovery behavior, with a bounded poison-message/dead-letter policy.
-7. Add an analytics read API such as `GET /api/v1/links/{code}/analytics`, after deciding whether access control is in scope.
-8. Test successful publishing/consumption, duplicate delivery, Redis unavailability, poison events, and the guarantee that redirects still work when analytics fails.
-9. Update this memory, README, architecture decisions, and validation evidence.
-
-Redis read-through redirect caching should follow analytics as a separate slice. Its design must specify positive/negative TTLs, expiration-aware TTL capping, and invalidation for future update/disable operations.
+1. Decide the authentication/ownership contract for creation, analytics, and management APIs.
+2. Add lookup, disable, and destination-update operations with optimistic concurrency.
+3. Invalidate positive and negative cache entries after committed mutations.
+4. Add authorization, rate limiting, audit events, and focused concurrency tests.
+5. Add worker lag/pending/dead-letter metrics and an operational replay runbook.
 
 ## Human decisions still required
 
