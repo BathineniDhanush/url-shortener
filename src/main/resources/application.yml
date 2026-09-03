@@ -36,3 +36,6 @@ app:
     role: api
   links:
     public-base-url: ${PUBLIC_BASE_URL:http://localhost:8080}
+  analytics:
+    consumer-name: ${ANALYTICS_CONSUMER_NAME:worker-1}
+    max-attempts: ${ANALYTICS_MAX_ATTEMPTS:3}

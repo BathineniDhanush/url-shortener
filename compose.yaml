@@ -45,6 +45,7 @@ services:
       SPRING_PROFILES_ACTIVE: worker
       DB_HOST: postgres
       REDIS_HOST: redis
+      ANALYTICS_CONSUMER_NAME: worker-1
     depends_on:
       postgres:
         condition: service_healthy

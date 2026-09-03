@@ -1,0 +1,275 @@
+openapi: 3.1.0
+info:
+  title: URL Shortener API
+  version: 1.0.0
+  description: API runtime contract for link creation, redirects, click totals, system information, and health.
+servers:
+  - url: http://localhost:8080
+    description: Local Docker Compose
+tags:
+  - name: Links
+  - name: Analytics
+  - name: System
+  - name: Health
+paths:
+  /api/v1/links:
+    post:
+      tags: [Links]
+      summary: Create a short link
+      operationId: createLink
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLinkRequest'
+      responses:
+        '201':
+          description: Link created
+          headers:
+            Location:
+              description: Public short URL
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/links/{code}/analytics:
+    get:
+      tags: [Analytics]
+      summary: Get the total persisted clicks for a short link
+      description: This prototype endpoint is public; production requires an ownership and authorization policy.
+      operationId: getLinkAnalytics
+      parameters:
+        - $ref: '#/components/parameters/Code'
+      responses:
+        '200':
+          description: Click total
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
+  /api/v1/system/info:
+    get:
+      tags: [System]
+      summary: Get build and runtime information
+      operationId: getSystemInfo
+      responses:
+        '200':
+          description: System information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemInfo'
+  /actuator/health:
+    get:
+      tags: [Health]
+      summary: Get aggregate application health
+      operationId: getHealth
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthResponse'
+        '503':
+          $ref: '#/components/responses/HealthResponse'
+  /actuator/health/liveness:
+    get:
+      tags: [Health]
+      summary: Get liveness health
+      operationId: getLiveness
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthResponse'
+        '503':
+          $ref: '#/components/responses/HealthResponse'
+  /actuator/health/readiness:
+    get:
+      tags: [Health]
+      summary: Get readiness health
+      operationId: getReadiness
+      responses:
+        '200':
+          $ref: '#/components/responses/HealthResponse'
+        '503':
+          $ref: '#/components/responses/HealthResponse'
+  /{code}:
+    get:
+      tags: [Links]
+      summary: Resolve a short link
+      operationId: resolveLink
+      parameters:
+        - $ref: '#/components/parameters/Code'
+      responses:
+        '302':
+          description: Redirect to the destination URL
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+                format: uri
+            Cache-Control:
+              schema:
+                type: string
+              example: no-store
+            Referrer-Policy:
+              schema:
+                type: string
+              example: no-referrer
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
+components:
+  parameters:
+    Code:
+      name: code
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9_-]{4,32}$'
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: Short code conflict
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Short link not found
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Gone:
+      description: Short link expired or disabled
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ServiceUnavailable:
+      description: Short-code allocation unavailable
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    HealthResponse:
+      description: Spring Boot health response
+      content:
+        application/vnd.spring-boot.actuator.v3+json:
+          schema:
+            $ref: '#/components/schemas/Health'
+  schemas:
+    CreateLinkRequest:
+      type: object
+      required: [destinationUrl]
+      properties:
+        destinationUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: Absolute HTTP or HTTPS URL without credentials.
+          example: https://example.com/docs
+        customAlias:
+          type: [string, 'null']
+          pattern: '^[A-Za-z0-9_-]{4,32}$'
+          example: docs-2026
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+          description: Must be in the future when supplied.
+    LinkResponse:
+      type: object
+      required: [id, code, shortUrl, destinationUrl, status, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        shortUrl:
+          type: string
+          format: uri
+        destinationUrl:
+          type: string
+          format: uri
+        status:
+          type: string
+          enum: [ACTIVE, DISABLED]
+        expiresAt:
+          type: [string, 'null']
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+    AnalyticsResponse:
+      type: object
+      required: [code, totalClicks]
+      properties:
+        code:
+          type: string
+        totalClicks:
+          type: integer
+          format: int64
+          minimum: 0
+    SystemInfo:
+      type: object
+      required: [service, version, runtimeRole]
+      properties:
+        service:
+          type: string
+          example: url-shortener
+        version:
+          type: string
+        runtimeRole:
+          type: string
+          enum: [API, WORKER]
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: UP
+      additionalProperties: true
+    Problem:
+      type: object
+      required: [type, title, status, detail]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri
+        errors:
+          type: array
+          items:
+            type: string
+      additionalProperties: true
