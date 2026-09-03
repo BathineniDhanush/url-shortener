@@ -102,7 +102,10 @@ class AnalyticsConsumerIntegrationTest {
         consumer = new AnalyticsConsumer(redisTemplate, repository, "restart-worker", 3, metrics);
         consumer.run(null);
 
-        await(() -> streamSize(DEAD_LETTER_STREAM_KEY) == 1, Duration.ofSeconds(7));
+        await(() -> streamSize(DEAD_LETTER_STREAM_KEY) == 1
+                && pendingCount() == 0
+                && !redisTemplate.opsForHash().hasKey("clicks:retry-attempts", recordId.getValue()),
+            Duration.ofSeconds(7));
         assertEquals(0, pendingCount());
         assertTrue(!redisTemplate.opsForHash().hasKey("clicks:retry-attempts", recordId.getValue()));
     }
