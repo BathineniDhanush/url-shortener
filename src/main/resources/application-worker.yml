@@ -1,0 +1,9 @@
+spring:
+  main:
+    web-application-type: none
+    keep-alive: true
+  flyway:
+    enabled: false
+app:
+  runtime:
+    role: worker
