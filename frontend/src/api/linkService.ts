@@ -4,8 +4,7 @@ import type {
   LinkResponse,
   UpdateLinkRequest,
   AnalyticsResponse,
-  SystemInfo,
-  HealthResponse
+  SystemInfo
 } from '../types';
 
 export const linkService = {
@@ -44,14 +43,6 @@ export const linkService = {
 
   async getSystemInfo(): Promise<SystemInfo> {
     const response = await apiClient.get<SystemInfo>('/api/v1/system/info');
-    return response.data;
-  },
-
-  async getHealth(): Promise<HealthResponse> {
-    const response = await apiClient.get<HealthResponse>('/actuator/health');
-    if (!response.data || typeof response.data.status !== 'string') {
-      throw new Error('The API returned a malformed health response.');
-    }
     return response.data;
   },
 };

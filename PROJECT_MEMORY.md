@@ -286,6 +286,10 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 5. One disposable `smoke...` link targeting `https://example.com/docs` may remain from an earlier smoke
    script that stopped after treating the expected redirect as an error; its one-time owner token is not
    recoverable by design.
+6. The SPA availability probe uses the MVC-managed `/api/v1/system/info` endpoint. Do not probe
+   `/actuator/health` directly from the browser: Actuator uses a separate handler mapping and does not
+   inherit the application's MVC CORS configuration. The deployed browser reports `API healthy` after
+   this correction.
 
 ## Human decisions still required
 
