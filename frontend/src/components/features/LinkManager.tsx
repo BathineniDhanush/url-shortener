@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+/* oxlint-disable react/set-state-in-effect -- loading remote state is the purpose of this effect */
+import React, { useCallback, useEffect, useState } from 'react';
 import { linkService } from '../../api/linkService';
 import type { LinkResponse, UpdateLinkRequest } from '../../types';
 import Button from '../common/UI/Button';
 import Input from '../common/UI/Input';
-import { Save, AlertCircle } from 'lucide-react';
+import { Save, AlertCircle, Trash2 } from 'lucide-react';
 
 interface LinkManagerProps {
   initialCode: string;
@@ -15,14 +16,14 @@ const LinkManager: React.FC<LinkManagerProps> = ({ initialCode, token, onSuccess
   const [link, setLink] = useState<LinkResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<Partial<UpdateLinkRequest>>({});
 
-  React.useEffect(() => {
-    fetchLink();
-  }, [initialCode, token]);
-
-  const fetchLink = async () => {
+  const fetchLink = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
       const data = await linkService.getLinkDetails(initialCode, token);
       setLink(data);
@@ -36,7 +37,11 @@ const LinkManager: React.FC<LinkManagerProps> = ({ initialCode, token, onSuccess
     } finally {
       setLoading(false);
     }
-  };
+  }, [initialCode, token]);
+
+  useEffect(() => {
+    void fetchLink();
+  }, [fetchLink]);
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,8 +50,10 @@ const LinkManager: React.FC<LinkManagerProps> = ({ initialCode, token, onSuccess
 
     try {
       await linkService.updateLink(initialCode, token, {
-        expectedVersion: link?.version || 0,
-        ...form,
+        expectedVersion: link?.version ?? 0,
+        destinationUrl: form.destinationUrl?.trim() || null,
+        status: form.status,
+        expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : null,
       });
       await fetchLink();
       onSuccess();
@@ -54,6 +61,23 @@ const LinkManager: React.FC<LinkManagerProps> = ({ initialCode, token, onSuccess
       setError(err.response?.data?.detail || 'Failed to update link.');
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!link || !window.confirm(`Permanently delete ${link.code} and all of its analytics? This cannot be undone.`)) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await linkService.deleteLink(initialCode, token, link.version);
+      setDeleted(true);
+      onSuccess();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to delete link. Refresh and try again.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -70,6 +94,15 @@ const LinkManager: React.FC<LinkManagerProps> = ({ initialCode, token, onSuccess
       <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-lg flex items-center gap-3">
         <AlertCircle className="w-5 h-5" />
         <span>{error}</span>
+      </div>
+    );
+  }
+
+  if (deleted) {
+    return (
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-8 text-center">
+        <h2 className="text-2xl font-bold text-emerald-900">Link deleted</h2>
+        <p className="mt-2 text-emerald-700">The short link and its analytics have been permanently removed.</p>
       </div>
     );
   }
@@ -116,27 +149,26 @@ const LinkManager: React.FC<LinkManagerProps> = ({ initialCode, token, onSuccess
           </div>
         </div>
 
-        <div className="pt-4 flex justify-end gap-3">
-          <Button
-            variant="secondary"
-            type="button"
-            onClick={() => setForm({
-              destinationUrl: link.destinationUrl,
-              status: link.status,
-              expiresAt: link.expiresAt?.slice(0, 16) || '',
-            })}
-          >
-            Reset
+        <div className="flex flex-col-reverse gap-3 border-t border-gray-100 pt-6 sm:flex-row sm:justify-between">
+          <Button variant="danger" type="button" isLoading={deleting} onClick={handleDelete}>
+            <span className="flex items-center gap-2"><Trash2 className="h-4 w-4" /> Delete permanently</span>
           </Button>
-          <Button
-            type="submit"
-            isLoading={updating}
-          >
-            <div className="flex items-center gap-2">
-              <Save className="w-4 h-4" />
-              Save Changes
-            </div>
-          </Button>
+          <div className="flex justify-end gap-3">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => setForm({
+                destinationUrl: link.destinationUrl,
+                status: link.status,
+                expiresAt: link.expiresAt?.slice(0, 16) || '',
+              })}
+            >
+              Reset
+            </Button>
+            <Button type="submit" isLoading={updating}>
+              <span className="flex items-center gap-2"><Save className="h-4 w-4" /> Save Changes</span>
+            </Button>
+          </div>
         </div>
       </form>
     </div>

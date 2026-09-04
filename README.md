@@ -39,11 +39,15 @@ continues to use Redis caching and Redis Streams.
 Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSL_MODE=require`, and
 `PUBLIC_BASE_URL` as Function App settings. See [the Azure Functions deployment runbook](docs/azure-functions-deployment.md).
 
+For the live Azure Container Apps SPA, set `FRONTEND_ORIGIN` on the API container to the exact HTTPS
+origin of the deployed frontend. Multiple explicit origins may be comma-separated; wildcard CORS is not enabled.
+
 Useful initial endpoints:
 
 - `POST /api/v1/links` creates a short link
 - `GET /api/v1/links/{code}` returns owner-visible link state
 - `PATCH /api/v1/links/{code}` updates destination, status, or expiration
+- `DELETE /api/v1/links/{code}?expectedVersion={version}` permanently deletes an owned link and its analytics
 - `GET /{code}` returns a temporary redirect to the destination
 - `GET /api/v1/links/{code}/analytics` returns the persisted click total
 - `GET /openapi.yaml` returns the OpenAPI 3.1 contract
@@ -67,9 +71,12 @@ $headers = @{ 'X-Link-Owner-Token' = $created.ownerToken }
 Invoke-RestMethod -Uri "http://localhost:8080/api/v1/links/$($created.code)" -Headers $headers
 $update = @{ expectedVersion = 0; destinationUrl = 'https://example.com/new'; status = 'DISABLED' } | ConvertTo-Json
 Invoke-RestMethod -Method Patch -Uri "http://localhost:8080/api/v1/links/$($created.code)" -Headers $headers -ContentType 'application/json' -Body $update
+Invoke-RestMethod -Method Delete -Uri "http://localhost:8080/api/v1/links/$($created.code)?expectedVersion=0" -Headers $headers
 ```
 
 Updates use the response `version` for optimistic concurrency; stale writers receive `409 Conflict`.
+Deletion uses the same owner token and version protection, returns `204 No Content`, evicts the redirect
+cache, and cascades to stored analytics. Delayed click events for deleted links are safely ignored.
 Creation is limited per direct client address using an atomic Redis fixed window (20 requests per 60
 seconds by default). Configure `LINK_CREATION_RATE_LIMIT` and `LINK_CREATION_RATE_WINDOW`. The limiter
 fails open when Redis is unavailable, so production deployments should also enforce an edge limit.
@@ -140,6 +147,15 @@ The stress profile ramps from 50 to 3,000 redirect requests/second, holds 3,000 
 20 seconds, and validates scheduling capacity, redirect status, destination header, error rate, and p95 latency. Treat local results as a regression
 baseline; cloud capacity still depends on the Function plan, PostgreSQL SKU, region, and network path.
 The latest evidence and production risks are recorded in [the Functions stress-test report](docs/azure-functions-stress-test.md).
+
+## Frontend SPA
+
+The `frontend` directory contains the React, TypeScript, and Vite single-page application centered on a
+live create → redirect → asynchronous analytics demonstration, plus an interactive architecture trace.
+It also supports owner-token management and deletion. Run `npm ci`, set `VITE_API_BASE_URL`, and use
+`npm run dev` locally or `npm run build` for the deployable `frontend/dist` directory. See
+[`frontend/README.md`](frontend/README.md) for Azure Static Web Apps configuration and the required
+Function App CORS origin.
 
 ## CI/CD
 

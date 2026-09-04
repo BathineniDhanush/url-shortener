@@ -3,7 +3,8 @@ import { linkService } from '../../api/linkService';
 import type { CreateLinkRequest, LinkResponse } from '../../types';
 import Button from '../common/UI/Button';
 import Input from '../common/UI/Input';
-import { Copy, ExternalLink, CheckCircle } from 'lucide-react';
+import { Copy, ExternalLink, CheckCircle, BarChart3, Settings } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const CreateLinkForm: React.FC = () => {
   const [request, setRequest] = useState<CreateLinkRequest>({
@@ -23,7 +24,11 @@ const CreateLinkForm: React.FC = () => {
     setResponse(null);
 
     try {
-      const result = await linkService.createLink(request);
+      const result = await linkService.createLink({
+        destinationUrl: request.destinationUrl.trim(),
+        customAlias: request.customAlias?.trim() || null,
+        expiresAt: request.expiresAt ? new Date(request.expiresAt).toISOString() : null,
+      });
       setResponse(result);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'An unexpected error occurred. Please try again.');
@@ -95,6 +100,20 @@ const CreateLinkForm: React.FC = () => {
         >
           Create Another Link
         </Button>
+        <div className="mt-4 flex flex-col justify-center gap-3 sm:flex-row">
+          <Link
+            to={`/manage/${response.code}`}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white transition-colors hover:bg-indigo-700"
+          >
+            <Settings className="h-4 w-4" /> Manage link
+          </Link>
+          <Link
+            to={`/analytics/${response.code}`}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-gray-200 px-4 py-2 font-medium text-gray-800 transition-colors hover:bg-gray-300"
+          >
+            <BarChart3 className="h-4 w-4" /> View analytics
+          </Link>
+        </div>
       </div>
     );
   }

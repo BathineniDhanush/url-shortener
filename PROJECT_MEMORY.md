@@ -211,7 +211,7 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - Creation has a Redis fixed-window limit that fails open; production still requires a trusted-proxy and edge-rate-limit policy.
 - Local/private IP literals and internal/metadata hostnames are blocked. Hostname DNS is deliberately not resolved during creation, so production egress/DNS-rebinding controls remain necessary if server-side URL fetching is ever added.
 - No Unicode/IDN normalization policy or canonical URL normalization.
-- Link lookup and optimistic destination/status/expiration updates exist; delete and owner-token rotation do not.
+- Link lookup, optimistic updates, and owner-authorized hard deletion exist; owner-token rotation does not.
 - Analytics reporting requires the owner token but still has no retention policy or aggregate tables.
 - Retry attempt counts persist in Redis across worker restarts.
 - Dead-letter records require monitoring and an operator replay procedure.
@@ -220,7 +220,7 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - Stream length and pending-record gauges exist; a true consumer-group lag gauge still needs production validation.
 - Security, concurrency, Redis-failure, and configurable k6 load-smoke coverage exist; sustained capacity and chaos testing remain outstanding.
 - Local Functions stress coverage now includes a 3,000 requests/second target and exposes saturation near 2,200-2,300 requested requests/second; sustained cloud capacity, cold-start concurrency, and chaos testing remain outstanding.
-- Azure Functions Flex Consumption is the selected HTTP API target, but a managed PostgreSQL server and cloud deployment have not yet been provisioned. Authentication secrets management and production TLS/proxy policy remain incomplete.
+- The deployed HTTP API currently runs as the `url-api` Azure Container App, with `url-worker` as a separate revision-scaled Container App. The optional Azure Functions packaging remains available but is not the active production target.
 - Sustained production capacity and multi-region consistency have not been validated.
 - CI/CD and the concurrent analytics slice are currently uncommitted; keep their changes separated when reviewing or committing.
 
@@ -234,7 +234,7 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - `docs/ci-cd-runbook.md` documents exact required checks, release tags, failure triage, GHCR permissions, and rollback constraints.
 - `docs/analytics-worker-runbook.md` documents pending/dead-letter inspection, idempotent replay, retired-consumer recovery, shutdown, and current operational gaps.
 - The delivery security gate requires patched Netty `4.1.136.Final`, PostgreSQL JDBC `42.7.12`, Tomcat `10.1.59`, and current Alpine runtime packages; these are explicit build inputs in `pom.xml` and `Dockerfile`. Tomcat `10.1.59` supersedes the unreleased `10.1.58` candidate and fixes the vulnerabilities affecting versions through `10.1.57`.
-- Actual deployment is intentionally not implemented because no hosting platform, environment credentials, health gate, or rollback contract has been selected.
+- Production deployment currently uses the existing `url-api` and `url-worker` Azure Container Apps plus Azure Static Web Apps; CI delivery automation still needs to codify this manually validated rollout and its rollback/health gates.
 
 ## Completed slice: ownership, management, and operational hardening
 
@@ -253,6 +253,37 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 5. Function context initialization is synchronized, lazy, and retryable after transient database startup failures.
 6. CI and Delivery package the Function; Delivery retains the deployable artifact for 14 days.
 7. `docs/azure-functions-deployment.md` records configuration, validation, trade-offs, and rollback steps.
+
+## Completed slice: deletion and frontend SPA
+
+1. `DELETE /api/v1/links/{code}?expectedVersion={version}` requires the owner capability token, checks
+   optimistic concurrency, hard-deletes the link, evicts its cache entry, and returns `204`.
+2. Flyway migration `V4` changes analytics ownership to `ON DELETE CASCADE`; delayed analytics events
+   for deleted links are ignored so queue/stream consumers can acknowledge them without dead-letter noise.
+3. The Azure Functions router and OpenAPI contract expose the same delete behavior.
+4. The React/Vite SPA in `frontend` centers the real create → open redirect → refresh asynchronous
+   analytics story. A separate interactive Architecture route traces the synchronous cache path and
+   asynchronous Redis Stream worker path. Owner tokens are not written to URLs or browser storage.
+5. Spring MVC CORS is disabled by default and accepts only explicit comma-separated `FRONTEND_ORIGIN`
+   values when configured for the separately deployed SPA.
+6. Verification on 2026-09-04 passed 48 backend tests, the JaCoCo 90.1% gate, Azure Functions packaging,
+   frontend lint, TypeScript compilation, the Vite production build, and rendered UI inspection.
+
+## Completed slice: Azure deployment (2026-09-04)
+
+1. Image `ghcr.io/bathinenidhanush/url-shortener:spa-delete-20260904` (digest
+   `sha256:f43e990ae101158e0b8fda444b4cbb0c9bab76ee84d89ccb1cb2bfb157f83767`) is deployed to the existing
+   `url-api` and `url-worker` Container Apps in resource group `url-shortener`.
+2. API revision `url-api--0000002` and worker revision `url-worker--0000001` became healthy. The API is
+   `https://url-api.redriver-672175da.eastus.azurecontainerapps.io`.
+3. `FRONTEND_ORIGIN` is the exact Static Web App origin. The SPA was built with the API URL and deployed
+   to `https://polite-ocean-0b239190f.6.azurestaticapps.net`; the Azure navigation fallback is included
+   in the Vite output so `/architecture` returns the SPA.
+4. Production smoke validation passed: API system-info `200`, link creation, redirect `302`, asynchronous
+   analytics count `1`, exact-origin CORS, owner-authorized deletion `204`, and post-delete resolution `404`.
+5. One disposable `smoke...` link targeting `https://example.com/docs` may remain from an earlier smoke
+   script that stopped after treating the expected redirect as an error; its one-time owner token is not
+   recoverable by design.
 
 ## Human decisions still required
 
