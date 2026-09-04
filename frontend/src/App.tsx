@@ -6,6 +6,7 @@ import Home from './pages/Home';
 import Manage from './pages/Manage';
 import Analytics from './pages/Analytics';
 import Architecture from './pages/Architecture';
+import EngineeringReview from './pages/EngineeringReview';
 
 const App: React.FC = () => {
   return (
@@ -20,6 +21,7 @@ const App: React.FC = () => {
             <Route path="/manage" element={<Manage />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/architecture" element={<Architecture />} />
+            <Route path="/engineering-review" element={<EngineeringReview />} />
             <Route path="*" element={<Home />} />
           </Routes>
         </main>

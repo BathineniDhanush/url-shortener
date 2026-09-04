@@ -1,4 +1,4 @@
-import { Boxes, Link2 } from 'lucide-react';
+import { Boxes, ClipboardCheck, Link2 } from 'lucide-react';
 import { Link, NavLink } from 'react-router-dom';
 
 export default function Navbar() {
@@ -12,6 +12,7 @@ export default function Navbar() {
       <div className="flex items-center gap-1 text-sm font-semibold text-slate-600">
         <NavLink to="/" end className={navClass}>Live demo</NavLink>
         <NavLink to="/architecture" className={navClass}><span className="inline-flex items-center gap-1.5"><Boxes className="h-4 w-4" /><span className="hidden sm:inline">Architecture</span></span></NavLink>
+        <NavLink to="/engineering-review" className={navClass}><span className="inline-flex items-center gap-1.5"><ClipboardCheck className="h-4 w-4" /><span className="hidden sm:inline">Review</span></span></NavLink>
         <NavLink to="/manage" className={({ isActive }) => `${navClass({ isActive })} hidden sm:block`}>Manage</NavLink>
       </div>
     </div>
