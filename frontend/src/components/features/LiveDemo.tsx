@@ -25,8 +25,8 @@ export default function LiveDemo() {
   const checkHealth = async () => {
     setHealth('checking');
     try {
-      const response = await linkService.getHealth();
-      setHealth(response.status.toUpperCase() === 'UP' ? 'healthy' : 'unavailable');
+      const response = await linkService.getSystemInfo();
+      setHealth(response.runtimeRole === 'API' ? 'healthy' : 'unavailable');
     } catch {
       setHealth('unavailable');
     }

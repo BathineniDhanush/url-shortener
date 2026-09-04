@@ -34,10 +34,6 @@ export interface SystemInfo {
   runtimeRole: 'API' | 'WORKER';
 }
 
-export interface HealthResponse {
-  status: string;
-}
-
 export interface Problem {
   type: string;
   title: string;
