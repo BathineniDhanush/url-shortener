@@ -89,6 +89,17 @@ class LinkCacheTest {
                 .put("serialization", link(), Duration.ofSeconds(10))).doesNotThrowAnyException();
     }
 
+    @Test
+    void operatesAsNoOpCacheWhenRedisIsDisabled() {
+        LinkCache cache = new LinkCache((StringRedisTemplate) null, new ObjectMapper(), metrics);
+
+        assertThat(cache.get("no-redis").isMiss()).isTrue();
+        assertThatCode(() -> cache.put("no-redis", link(), Duration.ofSeconds(10))).doesNotThrowAnyException();
+        assertThatCode(() -> cache.putNegative("no-redis", Duration.ofSeconds(10))).doesNotThrowAnyException();
+        assertThatCode(() -> cache.evict("no-redis")).doesNotThrowAnyException();
+        verify(metrics).cacheLookup(ApplicationMetrics.CacheOutcome.MISS);
+    }
+
     private Link link() {
         Instant now = Instant.parse("2026-09-03T12:00:00Z");
         return new Link(UUID.fromString("c90cbb8d-1f08-4f4e-b8ba-145aa05e342c"), "cache-link",

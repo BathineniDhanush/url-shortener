@@ -43,6 +43,9 @@ jobs:
       - name: Verify
         run: ./mvnw -B -ntp clean verify
 
+      - name: Package Azure Functions API
+        run: ./mvnw -B -ntp -Pazure-functions -DskipTests package
+
   container:
     name: Container build and vulnerability scan
     needs: verify

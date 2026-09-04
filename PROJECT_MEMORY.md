@@ -157,7 +157,25 @@ cd E:\Projects\url-shortener
 .\mvnw.cmd -B clean verify
 ```
 
-Result on 2026-09-03: 44 tests passed, 0 failures, 0 errors, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`. JaCoCo measured 90.24% aggregate line coverage, 91.16% instruction coverage, and 71.96% branch coverage. Maven verification enforces a 90.1% line-coverage floor.
+Result on 2026-09-03: 46 tests passed, 0 failures, 0 errors, and the executable JAR was produced at `target\url-shortener-0.0.1-SNAPSHOT.jar`. The JaCoCo 90.1% aggregate line-coverage gate passed.
+
+The Azure Functions profile also packages successfully with `mvnw.cmd -Pazure-functions -DskipTests package`.
+An end-to-end Core Tools smoke test against an isolated PostgreSQL 17 instance returned `200` health,
+`201` creation, `302` redirect with `Cache-Control: no-store`, and an owner-authorized analytics count of one.
+
+The Azure Functions runtime was stress-tested locally with k6 using a ramp from 10 to 300 requested
+redirects/second over 105 seconds. It completed 12,012 redirects with zero HTTP failures and 100% checks;
+latency was 12.34 ms average, 23.92 ms p95, and 126.15 ms maximum. PostgreSQL contained exactly 12,012
+analytics rows afterward and health remained `UP`. This is a local regression baseline, not a cloud
+capacity claim.
+
+A subsequent high-volume run ramped to 3,000 requested redirects/second and held that target for 20
+seconds using a 20-connection pool. It completed 120,475 requests at 1,095 requests/second overall,
+dropped 51,024 scheduled iterations, produced six database-connection failures, and reached 386.43 ms
+average / 1.04 s p95 / 2.6 s maximum latency. The 1,000-VU ceiling was reached near 2,300 requested
+requests/second, and one successful redirect lost its best-effort analytics insert. Health recovered to
+`UP`. This establishes that the current synchronous PostgreSQL redirect path does not satisfy a 3,000
+requests/second capacity target on one local Function worker.
 
 Security validation on 2026-09-03 rebuilt the runtime image with Tomcat `10.1.59` and scanned it using a freshly downloaded Trivy vulnerability and Java advisory database. Both the Alpine layer and `app/app.jar` reported zero `HIGH` or `CRITICAL` vulnerabilities.
 
@@ -201,7 +219,8 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 - API and worker expose Prometheus metrics; deployment-level alert rules are not yet defined.
 - Stream length and pending-record gauges exist; a true consumer-group lag gauge still needs production validation.
 - Security, concurrency, Redis-failure, and configurable k6 load-smoke coverage exist; sustained capacity and chaos testing remain outstanding.
-- No runtime deployment target, deployment manifests, authentication secrets management, or production TLS/proxy configuration.
+- Local Functions stress coverage now includes a 3,000 requests/second target and exposes saturation near 2,200-2,300 requested requests/second; sustained cloud capacity, cold-start concurrency, and chaos testing remain outstanding.
+- Azure Functions Flex Consumption is the selected HTTP API target, but a managed PostgreSQL server and cloud deployment have not yet been provisioned. Authentication secrets management and production TLS/proxy policy remain incomplete.
 - Sustained production capacity and multi-region consistency have not been validated.
 - CI/CD and the concurrent analytics slice are currently uncommitted; keep their changes separated when reviewing or committing.
 
@@ -225,6 +244,16 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 4. Creation rate limiting, private-destination rejection, structured audit logs, and security/concurrency tests are present.
 5. Worker retries persist in Redis and Prometheus exposes stream-length and pending-record gauges on port 8081.
 
+## Completed slice: Azure Functions API refactor
+
+1. The `azure-functions` Maven profile packages a Java 17 HTTP Function for Flex Consumption without changing the normal Spring Boot executable JAR.
+2. A catch-all explicit Function router preserves create, management, redirect, analytics, OpenAPI, system-info, and health routes and their status/header contracts.
+3. The Function starts the existing Spring application as a non-web context and reuses domain services, JDBC repositories, validation, and Flyway.
+4. Redis is optional in the Function runtime. Cache operations become no-ops, rate limiting fails open, and click analytics write synchronously to PostgreSQL; container API/worker behavior remains unchanged.
+5. Function context initialization is synchronized, lazy, and retryable after transient database startup failures.
+6. CI and Delivery package the Function; Delivery retains the deployable artifact for 14 days.
+7. `docs/azure-functions-deployment.md` records configuration, validation, trade-offs, and rollback steps.
+
 ## Human decisions still required
 
 Clarify these before their answers materially affect implementation:
@@ -235,6 +264,7 @@ Clarify these before their answers materially affect implementation:
 - Should redirect destinations be immutable after creation?
 - Must private-network/localhost destinations be blocked?
 - Expected traffic, latency SLO, availability target, and retention period.
+- Approval to provision the billable Azure Database for PostgreSQL Flexible Server test SKU and its desired lifecycle/cleanup policy.
 
 ## Completion discipline for future agents
 

@@ -19,6 +19,11 @@
         <netty.version>4.1.136.Final</netty.version>
         <postgresql.version>42.7.12</postgresql.version>
         <tomcat.version>10.1.59</tomcat.version>
+        <azure.functions.maven.plugin.version>1.37.1</azure.functions.maven.plugin.version>
+        <azure.functions.java.library.version>3.1.0</azure.functions.java.library.version>
+        <azure.function.app.name>url-shortener-api-test</azure.function.app.name>
+        <azure.function.resource.group>url-shortener-test-rg</azure.function.resource.group>
+        <azure.function.region>eastus</azure.function.region>
     </properties>
     <dependencies>
         <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
@@ -89,4 +94,74 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>azure-functions</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.microsoft.azure.functions</groupId>
+                    <artifactId>azure-functions-java-library</artifactId>
+                    <version>${azure.functions.java.library.version}</version>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.1</version>
+                        <executions>
+                            <execution>
+                                <id>add-azure-functions-source</id>
+                                <phase>generate-sources</phase>
+                                <goals><goal>add-source</goal></goals>
+                                <configuration>
+                                    <sources><source>src/azure/java</source></sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>com.microsoft.azure</groupId>
+                        <artifactId>azure-functions-maven-plugin</artifactId>
+                        <version>${azure.functions.maven.plugin.version}</version>
+                        <configuration>
+                            <appName>${azure.function.app.name}</appName>
+                            <hostJson>${project.basedir}/src/main/resources/host.json</hostJson>
+                            <resourceGroup>${azure.function.resource.group}</resourceGroup>
+                            <pricingTier>Flex Consumption</pricingTier>
+                            <region>${azure.function.region}</region>
+                            <runtime>
+                                <os>linux</os>
+                                <javaVersion>${java.version}</javaVersion>
+                            </runtime>
+                            <appSettings>
+                                <property>
+                                    <name>FUNCTIONS_EXTENSION_VERSION</name>
+                                    <value>~4</value>
+                                </property>
+                                <property>
+                                    <name>FUNCTIONS_WORKER_RUNTIME</name>
+                                    <value>java</value>
+                                </property>
+                            </appSettings>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>package-azure-functions</id>
+                                <goals><goal>package</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

@@ -6,6 +6,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
 
@@ -16,12 +18,22 @@ public class AnalyticsPublisher {
     private final StringRedisTemplate redisTemplate;
     private final ApplicationMetrics metrics;
 
+    @Autowired
+    public AnalyticsPublisher(ObjectProvider<StringRedisTemplate> redisTemplateProvider, ApplicationMetrics metrics) {
+        this(redisTemplateProvider.getIfAvailable(), metrics);
+    }
+
     public AnalyticsPublisher(StringRedisTemplate redisTemplate, ApplicationMetrics metrics) {
         this.redisTemplate = redisTemplate;
         this.metrics = metrics;
     }
 
     public void publish(ClickEvent event) {
+        if (redisTemplate == null) {
+            metrics.analyticsPublication(ApplicationMetrics.PublicationOutcome.FAILED);
+            log.debug("Analytics publication is disabled because Redis is not configured");
+            return;
+        }
         try {
             Map<String, String> eventData = Map.of(
                 "eventId", event.eventId().toString(),
