@@ -340,8 +340,7 @@ The latest evidence and production risks are recorded in [the Functions stress-t
 
 The 3,000 RPS run is useful failure evidence: it showed that synchronous PostgreSQL lookup plus analytics
 write is not a viable hot path at that target. Redis resolution caching, asynchronous event publication,
-controlled scale-out, and explicit database connection budgets are the resulting design actions. The same
-profile must still be repeated against Azure Container Apps before claiming the target.
+controlled scale-out, and explicit database connection budgets are the resulting design actions.
 
 ## Frontend SPA
 
