@@ -271,10 +271,12 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
 
 ## Completed slice: Azure deployment (2026-09-04)
 
-1. Image `ghcr.io/bathinenidhanush/url-shortener:spa-delete-20260904` (digest
-   `sha256:f43e990ae101158e0b8fda444b4cbb0c9bab76ee84d89ccb1cb2bfb157f83767`) is deployed to the existing
-   `url-api` and `url-worker` Container Apps in resource group `url-shortener`.
-2. API revision `url-api--0000002` and worker revision `url-worker--0000001` became healthy. The API is
+1. GitHub Actions Delivery run `33859800395` verified, scanned, and published commit `70e8eec` as
+   `ghcr.io/bathinenidhanush/url-shortener:sha-70e8eec` (OCI index digest
+   `sha256:01da90425ba056891ac8d0f7467a14b501f0ba767bc463e50df23c4eec89c328`).
+2. That GitHub-built image is deployed to the existing `url-api` and `url-worker` Container Apps in
+   resource group `url-shortener`. API revision `url-api--0000003` and worker revision
+   `url-worker--0000002` are healthy. The API is
    `https://url-api.redriver-672175da.eastus.azurecontainerapps.io`.
 3. `FRONTEND_ORIGIN` is the exact Static Web App origin. The SPA was built with the API URL and deployed
    to `https://polite-ocean-0b239190f.6.azurestaticapps.net`; the Azure navigation fallback is included
