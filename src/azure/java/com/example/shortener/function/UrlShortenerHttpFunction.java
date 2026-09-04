@@ -82,7 +82,7 @@ public class UrlShortenerHttpFunction {
     public HttpResponseMessage handle(
             @HttpTrigger(
                     name = "request",
-                    methods = {HttpMethod.GET, HttpMethod.POST, HttpMethod.PATCH},
+                    methods = {HttpMethod.GET, HttpMethod.POST, HttpMethod.PATCH, HttpMethod.DELETE},
                     authLevel = AuthorizationLevel.ANONYMOUS,
                     route = "{*path}") HttpRequestMessage<Optional<String>> request,
             ExecutionContext executionContext) {
@@ -125,6 +125,9 @@ public class UrlShortenerHttpFunction {
             if (method == HttpMethod.PATCH) {
                 return updateLink(request, linkMatcher.group(1));
             }
+            if (method == HttpMethod.DELETE) {
+                return deleteLink(request, linkMatcher.group(1));
+            }
         }
 
         Matcher redirectMatcher = REDIRECT_PATH.matcher(path);
@@ -166,6 +169,20 @@ public class UrlShortenerHttpFunction {
                 body.destinationUrl(), body.status(), body.expiresAt());
         return json(request, HttpStatus.OK, LinkResponse.from(
                 owned.link(), beans().linkProperties.publicBaseUrl(), owned.version(), null));
+    }
+
+    private HttpResponseMessage deleteLink(HttpRequestMessage<Optional<String>> request, String code) {
+        String rawVersion = request.getQueryParameters().get("expectedVersion");
+        if (rawVersion == null || rawVersion.isBlank()) {
+            throw new RequestValidationException(List.of("expectedVersion: is required"));
+        }
+        try {
+            long expectedVersion = Long.parseLong(rawVersion);
+            beans().manageLinkService.delete(code, ownerToken(request), expectedVersion);
+        } catch (NumberFormatException exception) {
+            throw new RequestValidationException(List.of("expectedVersion: must be a non-negative integer"));
+        }
+        return request.createResponseBuilder(HttpStatus.NO_CONTENT).build();
     }
 
     private HttpResponseMessage analytics(HttpRequestMessage<Optional<String>> request, String code) {

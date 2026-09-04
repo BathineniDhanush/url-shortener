@@ -91,6 +91,32 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Links]
+      summary: Permanently delete a link and its analytics
+      description: Requires the owner token and current version to prevent deleting a concurrently changed link.
+      operationId: deleteLink
+      security:
+        - OwnerToken: []
+      parameters:
+        - name: expectedVersion
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+      responses:
+        '204':
+          description: Link and associated analytics deleted
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
   /api/v1/links/{code}/analytics:
     get:
       tags: [Analytics]

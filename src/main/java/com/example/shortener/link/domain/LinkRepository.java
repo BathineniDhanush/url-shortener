@@ -7,4 +7,5 @@ public interface LinkRepository {
     Optional<Link> findByCode(String code);
     Optional<OwnedLink> findOwnedByCode(String code);
     boolean update(OwnedLink link, long expectedVersion);
+    boolean delete(String code, String ownerTokenHash, long expectedVersion);
 }

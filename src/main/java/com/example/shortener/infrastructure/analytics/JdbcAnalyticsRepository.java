@@ -24,7 +24,8 @@ public class JdbcAnalyticsRepository implements AnalyticsRepository {
     public void save(ClickEvent event) {
         String sql = """
             INSERT INTO analytics (id, link_id, timestamp, anonymized_ip, user_agent)
-            VALUES (:id, :linkId, :timestamp, :ip, :ua)
+            SELECT :id, :linkId, :timestamp, :ip, :ua
+            WHERE EXISTS (SELECT 1 FROM links WHERE id = :linkId)
             ON CONFLICT (id) DO NOTHING
             """;
 

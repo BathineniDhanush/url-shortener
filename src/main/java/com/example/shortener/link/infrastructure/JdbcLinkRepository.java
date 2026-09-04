@@ -43,6 +43,10 @@ public class JdbcLinkRepository implements LinkRepository {
                 updated_at = :updatedAt, version = version + 1
             WHERE code = :code AND version = :expectedVersion
             """;
+    private static final String DELETE_SQL = """
+            DELETE FROM links
+            WHERE code = :code AND owner_token_hash = :ownerTokenHash AND version = :expectedVersion
+            """;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -90,6 +94,13 @@ public class JdbcLinkRepository implements LinkRepository {
     public Optional<Link> findByCode(String code) {
         return jdbcTemplate.query(FIND_BY_CODE_SQL, Map.of("code", code), resultSet ->
                 resultSet.next() ? Optional.of(mapLink(resultSet)) : Optional.empty());
+    }
+
+    @Override
+    public boolean delete(String code, String ownerTokenHash, long expectedVersion) {
+        return jdbcTemplate.update(DELETE_SQL,
+                Map.of("code", code, "ownerTokenHash", ownerTokenHash,
+                        "expectedVersion", expectedVersion)) == 1;
     }
 
     private Link mapLink(ResultSet resultSet) throws SQLException {

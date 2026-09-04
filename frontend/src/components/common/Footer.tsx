@@ -2,9 +2,10 @@ import React from 'react';
 
 const Footer: React.FC = () => {
   return (
-    <footer className="bg-gray-50 border-t border-gray-200 py-8 mt-auto">
-      <div className="max-w-7xl mx-auto px-4 text-center text-gray-500 text-sm">
-        <p>&copy; {new Date().getFullYear()} URL Shortener. All rights reserved.</p>
+    <footer className="mt-auto border-t border-slate-200 bg-white py-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-2 px-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+        <p>&copy; {new Date().getFullYear()} Shortstack engineering prototype</p>
+        <p>Live values come from the configured API. Architecture content is explanatory.</p>
       </div>
     </footer>
   );

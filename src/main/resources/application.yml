@@ -32,6 +32,8 @@ management:
         enabled: true
       show-details: never
 app:
+  cors:
+    allowed-origin: ${FRONTEND_ORIGIN:}
   runtime:
     role: api
   links:

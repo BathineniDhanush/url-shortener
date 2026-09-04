@@ -73,4 +73,16 @@ public class ManageLinkService {
         log.info("audit action=link_update outcome=success code={} version={}", code, expectedVersion + 1);
         return new OwnedLink(updated, current.ownerTokenHash(), expectedVersion + 1);
     }
+
+    public void delete(String code, String ownerToken, long expectedVersion) {
+        if (expectedVersion < 0) {
+            throw new InvalidLinkUpdateException("Expected version must not be negative");
+        }
+        OwnedLink current = get(code, ownerToken);
+        if (!linkRepository.delete(code, current.ownerTokenHash(), expectedVersion)) {
+            throw new ConcurrentLinkUpdateException(code);
+        }
+        linkCache.evict(code);
+        log.info("audit action=link_delete outcome=success code={} version={}", code, expectedVersion);
+    }
 }

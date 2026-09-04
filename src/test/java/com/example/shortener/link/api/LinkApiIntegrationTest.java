@@ -27,15 +27,17 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-@SpringBootTest
+@SpringBootTest(properties = "app.cors.allowed-origin=https://spa.example.com")
 @AutoConfigureMockMvc
 @Testcontainers(disabledWithoutDocker = true)
 class LinkApiIntegrationTest {
@@ -247,6 +249,59 @@ class LinkApiIntegrationTest {
         mockMvc.perform(get("/api/v1/links/owned-link/analytics")
                         .header("X-Link-Owner-Token", token))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void allowsOnlyConfiguredFrontendOriginForCorsPreflight() throws Exception {
+        mockMvc.perform(options("/api/v1/links")
+                        .header("Origin", "https://spa.example.com")
+                        .header("Access-Control-Request-Method", "POST")
+                        .header("Access-Control-Request-Headers", "content-type"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://spa.example.com"));
+
+        mockMvc.perform(options("/api/v1/links")
+                        .header("Origin", "https://untrusted.example.com")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isForbidden())
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
+    }
+
+    @Test
+    void ownerCanPermanentlyDeleteLinkAndAnalyticsWithCurrentVersion() throws Exception {
+        String body = mockMvc.perform(post("/api/v1/links")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"destinationUrl":"https://example.com/delete","customAlias":"delete-link"}
+                                """))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode created = objectMapper.readTree(body);
+        String token = created.get("ownerToken").asText();
+        UUID linkId = UUID.fromString(created.get("id").asText());
+        analyticsRepository.save(new ClickEvent(UUID.randomUUID(), linkId, Instant.now(), null, null));
+
+        mockMvc.perform(delete("/api/v1/links/delete-link")
+                        .queryParam("expectedVersion", "0")
+                        .header("X-Link-Owner-Token", "wrong-token"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(delete("/api/v1/links/delete-link")
+                        .queryParam("expectedVersion", "1")
+                        .header("X-Link-Owner-Token", token))
+                .andExpect(status().isConflict());
+        mockMvc.perform(delete("/api/v1/links/delete-link")
+                        .queryParam("expectedVersion", "0")
+                        .header("X-Link-Owner-Token", token))
+                .andExpect(status().isNoContent());
+
+        assertEquals(0L, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM links WHERE code = 'delete-link'", Long.class));
+        assertEquals(0L, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM analytics WHERE link_id = ?", Long.class, linkId));
+        analyticsRepository.save(new ClickEvent(UUID.randomUUID(), linkId, Instant.now(), null, null));
+        assertEquals(0L, jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM analytics WHERE link_id = ?", Long.class, linkId));
+        mockMvc.perform(get("/delete-link")).andExpect(status().isNotFound());
     }
 
     @Test
