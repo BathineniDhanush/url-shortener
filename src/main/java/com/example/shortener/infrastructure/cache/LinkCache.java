@@ -8,6 +8,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Duration;
 @Component
@@ -20,6 +22,12 @@ public class LinkCache {
     private final ObjectMapper objectMapper;
     private final ApplicationMetrics metrics;
 
+    @Autowired
+    public LinkCache(ObjectProvider<StringRedisTemplate> redisTemplateProvider,
+                     ObjectMapper objectMapper, ApplicationMetrics metrics) {
+        this(redisTemplateProvider.getIfAvailable(), objectMapper, metrics);
+    }
+
     public LinkCache(StringRedisTemplate redisTemplate, ObjectMapper objectMapper, ApplicationMetrics metrics) {
         this.redisTemplate = redisTemplate;
         this.objectMapper = objectMapper;
@@ -27,6 +35,10 @@ public class LinkCache {
     }
 
     public CacheResult<Link> get(String code) {
+        if (redisTemplate == null) {
+            metrics.cacheLookup(ApplicationMetrics.CacheOutcome.MISS);
+            return CacheResult.miss();
+        }
         String key = CACHE_PREFIX + code;
         try {
             String value = redisTemplate.opsForValue().get(key);
@@ -58,6 +70,9 @@ public class LinkCache {
     }
 
     public void put(String code, Link link, Duration ttl) {
+        if (redisTemplate == null) {
+            return;
+        }
         String key = CACHE_PREFIX + code;
         try {
             String value = objectMapper.writeValueAsString(link);
@@ -70,6 +85,9 @@ public class LinkCache {
     }
 
     public void putNegative(String code, Duration ttl) {
+        if (redisTemplate == null) {
+            return;
+        }
         String key = CACHE_PREFIX + code;
         try {
             redisTemplate.opsForValue().set(key, NOT_FOUND_MARKER, ttl);
@@ -79,6 +97,8 @@ public class LinkCache {
     }
 
     public void evict(String code) {
-        redisTemplate.delete(CACHE_PREFIX + code);
+        if (redisTemplate != null) {
+            redisTemplate.delete(CACHE_PREFIX + code);
+        }
     }
 }

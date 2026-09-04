@@ -44,6 +44,17 @@ jobs:
       - name: Verify
         run: ./mvnw -B -ntp clean verify
 
+      - name: Package Azure Functions API
+        run: ./mvnw -B -ntp -Pazure-functions -DskipTests package
+
+      - name: Retain Azure Functions package
+        uses: actions/upload-artifact@v6
+        with:
+          name: azure-functions-api-${{ github.sha }}
+          path: target/azure-functions/url-shortener-api-test
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Scan and publish container
     needs: verify

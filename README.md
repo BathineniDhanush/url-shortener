@@ -2,6 +2,10 @@
 
 Maven-based Spring Boot URL shortener. The first vertical slice creates persistent short links and resolves them with HTTP redirects. The same artifact supports an HTTP API runtime and a background worker runtime through Spring profiles.
 
+The HTTP API can also be packaged as an Azure Functions Java application on Flex Consumption. This
+runtime reuses the same Spring application/domain services and PostgreSQL schema without starting an
+embedded servlet server.
+
 ## Prerequisites
 
 - Java 17
@@ -19,6 +23,21 @@ Maven-based Spring Boot URL shortener. The first vertical slice creates persiste
 ```bash
 docker compose up --build
 ```
+
+## Package the Azure Functions API
+
+```powershell
+.\mvnw.cmd -Pazure-functions -DskipTests clean package
+```
+
+The deployable directory is `target/azure-functions/url-shortener-api-test`. The Function preserves
+the existing routes, including root-level short-link redirects. It requires PostgreSQL and records
+click analytics synchronously there. Redis is intentionally optional in this runtime so Flex
+Consumption can scale to zero without requiring an always-on cache; the container API/worker mode
+continues to use Redis caching and Redis Streams.
+
+Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSL_MODE=require`, and
+`PUBLIC_BASE_URL` as Function App settings. See [the Azure Functions deployment runbook](docs/azure-functions-deployment.md).
 
 Useful initial endpoints:
 
@@ -107,18 +126,33 @@ k6 run tests/load/url-shortener-smoke.js
 Defaults are 50 redirect requests/second for 30 seconds with thresholds of less than 1% failures and
 under 200 ms p95 latency. Override `BASE_URL`, `REQUESTS_PER_SECOND`, and `DURATION` as needed.
 
+For a capacity-oriented ramp against the Azure Functions API, run:
+
+```powershell
+docker run --rm `
+  -e BASE_URL=http://host.docker.internal:7071 `
+  -e CODE=your-code `
+  -v E:\Projects\url-shortener\tests\load:/scripts:ro `
+  grafana/k6:latest run /scripts/url-shortener-stress.js
+```
+
+The stress profile ramps from 50 to 3,000 redirect requests/second, holds 3,000 requests/second for
+20 seconds, and validates scheduling capacity, redirect status, destination header, error rate, and p95 latency. Treat local results as a regression
+baseline; cloud capacity still depends on the Function plan, PostgreSQL SKU, region, and network path.
+The latest evidence and production risks are recorded in [the Functions stress-test report](docs/azure-functions-stress-test.md).
+
 ## CI/CD
 
 GitHub Actions provides two guarded pipelines:
 
-- `CI` runs Maven verification with a health-checked Redis service, builds the container, and blocks on fixable high or critical vulnerabilities for pull requests, non-`main` branch pushes, and manual runs.
-- `Delivery` repeats verification for trusted `main`, semantic version tag (`v*.*.*`), or manual runs; it scans before publishing the image to `ghcr.io/<owner>/<repository>` with provenance and an SBOM.
+- `CI` runs Maven verification, packages the Azure Functions API, builds the container, and blocks on fixable high or critical vulnerabilities for pull requests, non-`master` branch pushes, and manual runs.
+- `Delivery` repeats verification and Function packaging for trusted `master`, semantic version tag (`v*.*.*`), or manual runs; it retains the Function artifact and scans before publishing the container image to `ghcr.io/<owner>/<repository>` with provenance and an SBOM.
 
 Published tags include `latest` on the default branch, the branch name, `sha-<commit>`, and semantic-version tags when a release tag is pushed. The workflow uses the scoped `GITHUB_TOKEN`; no registry password is required. Repository settings must allow Actions to write packages.
 
 Dependabot checks GitHub Actions, Maven, and Docker dependencies weekly. Configure `Maven verification` and `Container build and vulnerability scan` as required checks on `main` to prevent unverified merges.
 
-This pipeline performs continuous delivery to GHCR, not deployment to a runtime environment. Add a deployment job with a protected GitHub Environment after selecting the hosting platform and defining rollback and health-check behavior.
+Runtime deployment remains a protected/manual operation until Azure federated credentials and environment approval rules are configured in GitHub.
 
 Required-check configuration, release handling, scan triage, and rollback constraints are documented in [the CI/CD runbook](docs/ci-cd-runbook.md).
 

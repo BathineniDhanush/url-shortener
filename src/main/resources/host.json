@@ -1,0 +1,17 @@
+{
+  "version": "2.0",
+  "extensions": {
+    "http": {
+      "routePrefix": ""
+    },
+    "serviceBus": {
+      "prefetchCount": 256,
+      "maxConcurrentCalls": 16,
+      "maxAutoLockRenewalDuration": "00:05:00"
+    }
+  },
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[4.*, 5.0.0)"
+  }
+}
