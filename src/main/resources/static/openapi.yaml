@@ -4,8 +4,8 @@ info:
   version: 1.0.0
   description: API runtime contract for owned link management, redirects, click totals, system information, and health.
 servers:
-  - url: http://localhost:8080
-    description: Local Docker Compose
+  - url: /
+    description: Current API origin
 tags:
   - name: Links
   - name: Analytics

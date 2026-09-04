@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.containsString;
@@ -64,6 +65,17 @@ class UrlShortenerApplicationTest {
                 .andExpect(content().string(containsString("openapi: 3.1.0")))
                 .andExpect(content().string(containsString("/api/v1/links:")))
                 .andExpect(content().string(containsString("/api/v1/links/{code}/analytics:")));
+    }
+
+    @Test
+    void swaggerUiRendersTheCommittedOpenApiContract() throws Exception {
+        mockMvc.perform(get("/swagger-ui.html"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", containsString("/swagger-ui/")));
+
+        mockMvc.perform(get("/swagger-ui/index.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("Swagger UI")));
     }
 
     @Test

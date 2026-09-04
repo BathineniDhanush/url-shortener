@@ -266,7 +266,7 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
    asynchronous Redis Stream worker path. Owner tokens are not written to URLs or browser storage.
 5. Spring MVC CORS is disabled by default and accepts only explicit comma-separated `FRONTEND_ORIGIN`
    values when configured for the separately deployed SPA.
-6. Verification on 2026-09-04 passed 48 backend tests, the JaCoCo 90.1% gate, Azure Functions packaging,
+6. Verification on 2026-09-04 originally passed 48 backend tests, the JaCoCo 90.1% gate, Azure Functions packaging,
    frontend lint, TypeScript compilation, the Vite production build, and rendered UI inspection.
 
 ## Completed slice: Azure deployment (2026-09-04)
@@ -290,6 +290,21 @@ The Docker Compose stack was also built and smoke-tested successfully: health be
    `/actuator/health` directly from the browser: Actuator uses a separate handler mapping and does not
    inherit the application's MVC CORS configuration. The deployed browser reports `API healthy` after
    this correction.
+
+## Completed slice: final reviewer evidence and Swagger UI
+
+1. The Architecture page now documents the deployed Azure Static Web Apps → public `url-api` → internal
+   Redis/Redis Stream → private `url-worker` → PostgreSQL topology, supply-chain rollout, security
+   boundaries, scale controls, and remaining managed-service work.
+2. The frontend presents the measured k6 results without overstating them: 300 requested RPS passed;
+   3,000 requested RPS did not meet scheduling/latency capacity and exposed JDBC connection pressure.
+3. `/engineering-review` answers the objective, scenario, scope, eight core requirements, deliverables,
+   three required scenarios, evaluation criteria, AI traceability, risks, assumptions, limitations, and
+   human sign-off expectations. The same evidence is retained in `README.md` for offline review.
+4. Springdoc `2.9.0` serves `/swagger-ui.html`, configured to render the committed `/openapi.yaml` contract;
+   the contract uses a relative server URL so “Try it out” targets the current API origin.
+5. Verification passed 49 backend tests, the JaCoCo >90% gate, frontend lint/build, Azure Functions
+   packaging, and rendered inspection of both evidence pages.
 
 ## Human decisions still required
 

@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { ArrowDown, ArrowRight, Box, Braces, Database, GitBranch, Layers3, RadioTower, ServerCog } from 'lucide-react';
+import { ArrowDown, ArrowRight, Box, Braces, Database, ExternalLink, FileJson, GitBranch, Layers3, RadioTower, ServerCog } from 'lucide-react';
+import { API_BASE_URL } from '../api/client';
+import CloudArchitecture from '../components/features/CloudArchitecture';
+import PerformanceEvidence from '../components/features/PerformanceEvidence';
 
 type NodeKey = 'spa' | 'api' | 'redis' | 'worker' | 'postgres';
 
@@ -63,6 +66,10 @@ export default function Architecture() {
       </div>
     </section>
 
+    <CloudArchitecture />
+
+    <PerformanceEvidence />
+
     <section className="mt-12" aria-labelledby="flow-heading">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div><p className="text-xs font-bold uppercase tracking-[0.2em] text-indigo-600">Interactive trace</p><h2 id="flow-heading" className="mt-2 text-3xl font-bold text-slate-950">Request flow explorer</h2></div>
@@ -99,8 +106,17 @@ export default function Architecture() {
       <article className="rounded-2xl border border-slate-200 bg-white p-6">
         <div className="flex items-center gap-2"><Box className="h-5 w-5 text-indigo-600" /><h2 className="font-bold text-slate-950">Delivery path</h2></div>
         <p className="mt-4 leading-7 text-slate-600">GitHub push → Maven verify → Function package → Docker build → Trivy scan → GHCR publish with provenance and SBOM.</p>
-        <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-medium text-amber-800">Azure deployment is currently a protected/manual integration; the workflow publishes artifacts but does not claim automated Azure rollout.</p>
+        <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm font-medium text-amber-800">Azure rollout is protected and manual: an engineer selects the immutable SHA image, updates Container App revisions with Azure CLI, then verifies health before continuing.</p>
       </article>
+    </section>
+
+    <section className="mt-12 rounded-3xl border border-indigo-200 bg-indigo-50 p-6 sm:p-8">
+      <div className="flex items-center gap-3"><FileJson className="h-6 w-6 text-indigo-700" /><h2 className="text-2xl font-bold text-slate-950">Executable API documentation</h2></div>
+      <p className="mt-4 max-w-3xl leading-7 text-slate-700">The backend serves the committed OpenAPI 3.1 contract and renders it through Swagger UI. The relative server URL makes “Try it out” target the same API origin in local and deployed environments.</p>
+      <div className="mt-5 flex flex-wrap gap-3">
+        <a href={`${API_BASE_URL}/swagger-ui.html`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl bg-indigo-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-indigo-800">Open Swagger UI <ExternalLink className="h-4 w-4" /></a>
+        <a href={`${API_BASE_URL}/openapi.yaml`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-indigo-300 bg-white px-4 py-2.5 text-sm font-bold text-indigo-800 hover:bg-indigo-100">View OpenAPI YAML <ExternalLink className="h-4 w-4" /></a>
+      </div>
     </section>
   </main>;
 }
